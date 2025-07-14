@@ -17,56 +17,44 @@ def get_app_directory():
 
 # Use application directory for config files
 APP_DIR = get_app_directory()
+
 CONFIG_PATH = APP_DIR / "config.json"
 LOG_PATH = APP_DIR / "usage_log.json"
 
-# Load configuration
-try:
-    with open(CONFIG_PATH, "r") as f:
-        config = json.load(f)
-except FileNotFoundError:
-    # Try to load default config
-    default_config_path = APP_DIR / "config.default.json"
+def load_config():
+    """Load configuration from file"""
     try:
-        with open(default_config_path, "r") as f:
-            config = json.load(f)
-        print(f"Loaded default configuration from {default_config_path}")
-        # Save as user config
-        with open(CONFIG_PATH, "w") as f:
-            json.dump(config, f, indent=2)
+        with open(CONFIG_PATH, "r") as f:
+            return json.load(f)
     except FileNotFoundError:
-        print("Config file not found. Please run GUI first to configure applications.")
-        sys.exit(1)
+        # Try to load default config
+        default_config_path = APP_DIR / "config.default.json"
+        try:
+            with open(default_config_path, "r") as f:
+                config = json.load(f)
+            print(f"Loaded default configuration from {default_config_path}")
+            # Save as user config
+            with open(CONFIG_PATH, "w") as f:
+                json.dump(config, f, indent=2)
+            return config
+        except FileNotFoundError:
+            print("Config file not found. Please run GUI first to configure applications.")
+            return None
 
-apps = config["apps"]
-interval = config.get("check_interval", 30)
-
-# Check if monitoring is enabled
-if not config.get("enabled", False):
-    print("Monitoring is disabled. Enable it through GUI.")
-    sys.exit(0)
-
-if not apps:
-    print("No applications configured for monitoring.")
-    sys.exit(0)
-
-# Initialize or load log
-if LOG_PATH.exists():
-    with open(LOG_PATH, "r") as f:
-        usage_log = json.load(f)
-else:
-    usage_log = {}
-
-today = datetime.now().strftime("%Y-%m-%d")
-
-if today not in usage_log:
-    usage_log[today] = {app: 0 for app in apps}
-
-def save_log():
+def save_log(usage_log):
+    """Save usage log to file"""
     with open(LOG_PATH, "w") as f:
         json.dump(usage_log, f, indent=2)
 
+def load_usage_log():
+    """Load usage log from file"""
+    if LOG_PATH.exists():
+        with open(LOG_PATH, "r") as f:
+            return json.load(f)
+    return {}
+
 def kill_app(app_name):
+    """Kill application by name"""
     if sys.platform == "win32":
         os.system(f"taskkill /f /im {app_name}")
     else:
@@ -75,6 +63,30 @@ def kill_app(app_name):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] CLOSED: {app_name}")
 
 def monitor():
+    """Main monitoring function"""
+    config = load_config()
+    if config is None:
+        sys.exit(1)
+    
+    apps = config["apps"]
+    interval = config.get("check_interval", 30)
+
+    # Check if monitoring is enabled
+    if not config.get("enabled", False):
+        print("Monitoring is disabled. Enable it through GUI.")
+        sys.exit(0)
+
+    if not apps:
+        print("No applications configured for monitoring.")
+        sys.exit(0)
+
+    # Initialize or load log
+    usage_log = load_usage_log()
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    if today not in usage_log:
+        usage_log[today] = {app: 0 for app in apps}
+
     print("⏳ Monitoring applications...")
     print(f"📱 Tracking: {', '.join(apps.keys())}")
     
@@ -99,7 +111,7 @@ def monitor():
                     if usage_log[current_day][app] >= limit:
                         kill_app(app)
 
-            save_log()
+            save_log(usage_log)
             time.sleep(interval)
             
         except KeyboardInterrupt:
