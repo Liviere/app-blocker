@@ -92,3 +92,56 @@ Configuration is stored in `config.json`:
 
 - `psutil` - for process monitoring
 - `tkinter` - graphical interface (built into Python)
+
+## 🧪 Testing
+
+The project includes comprehensive tests that use isolated configuration files to avoid interfering with your actual App Blocker settings.
+
+### Running Tests
+
+```bash
+# Run all tests
+poetry run pytest
+
+# Run tests with verbose output
+poetry run pytest -v
+
+# Run specific test file
+poetry run pytest tests/test_with_utils.py
+
+# Run tests and generate coverage report
+poetry run pytest --cov=. --cov-report=html
+```
+
+### Test Structure
+
+- `tests/test_app_blocker.py` - Basic functionality tests
+- `tests/test_isolated_config.py` - Advanced tests with isolated configuration
+- `tests/test_with_utils.py` - Example tests using test utilities
+- `tests/test_utils.py` - Utilities for creating isolated test environments
+
+### Test Isolation
+
+All tests use temporary directories and mock configurations to ensure:
+
+- Your actual `config.json` and `usage_log.json` files are never modified
+- Tests run in complete isolation from your real App Blocker settings
+- Multiple test runs don't interfere with each other
+
+## 🛠️ Development
+
+### Setting up Development Environment
+
+```bash
+# Install development dependencies
+poetry install
+
+# Format code with Black
+poetry run black .
+
+# Lint code with Flake8
+poetry run flake8 .
+
+# Run tests
+poetry run pytest
+```
