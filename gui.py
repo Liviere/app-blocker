@@ -342,8 +342,12 @@ class AppDialog:
     def cancel_clicked(self):
         self.dialog.destroy()
 
-if __name__ == "__main__":
+def main():
+    """Entry point for the app-blocker-gui command"""
     root = tk.Tk()
     app = AppBlockerGUI(root)
     root.protocol("WM_DELETE_WINDOW", lambda: (app.stop_monitoring(), root.destroy()))
     root.mainloop()
+
+if __name__ == "__main__":
+    main()

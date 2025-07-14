@@ -109,5 +109,9 @@ def monitor():
             print(f"Error: {e}")
             time.sleep(5)
 
-if __name__ == "__main__":
+def main():
+    """Entry point for the app-blocker command"""
     monitor()
+
+if __name__ == "__main__":
+    main()
