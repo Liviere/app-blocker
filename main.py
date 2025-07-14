@@ -25,8 +25,18 @@ try:
     with open(CONFIG_PATH, "r") as f:
         config = json.load(f)
 except FileNotFoundError:
-    print("Config file not found. Please run GUI first to configure applications.")
-    sys.exit(1)
+    # Try to load default config
+    default_config_path = APP_DIR / "config.default.json"
+    try:
+        with open(default_config_path, "r") as f:
+            config = json.load(f)
+        print(f"Loaded default configuration from {default_config_path}")
+        # Save as user config
+        with open(CONFIG_PATH, "w") as f:
+            json.dump(config, f, indent=2)
+    except FileNotFoundError:
+        print("Config file not found. Please run GUI first to configure applications.")
+        sys.exit(1)
 
 apps = config["apps"]
 interval = config.get("check_interval", 30)

@@ -58,11 +58,22 @@ class AppBlockerGUI:
             with open(self.config_path, "r") as f:
                 self.config = json.load(f)
         except FileNotFoundError:
-            self.config = {
-                "apps": {},
-                "check_interval": 30,
-                "enabled": False
-            }
+            # Try to load default config
+            default_config_path = self.app_dir / "config.default.json"
+            try:
+                with open(default_config_path, "r") as f:
+                    self.config = json.load(f)
+                print(f"Loaded default configuration from {default_config_path}")
+            except FileNotFoundError:
+                # Fallback to hardcoded default
+                self.config = {
+                    "apps": {},
+                    "check_interval": 30,
+                    "enabled": False
+                }
+                print("Using hardcoded default configuration")
+            
+            # Save the config to create user's config file
             self.save_config()
     
     def save_config(self):
