@@ -1,5 +1,6 @@
 {
 	"apps": {},
 	"check_interval": 30,
-	"enabled": false
+	"enabled": false,
+	"autostart": false
 }

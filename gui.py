@@ -7,6 +7,7 @@ import os
 from datetime import datetime
 import psutil
 from pathlib import Path
+from autostart import AutostartManager
 
 
 class AppBlockerGUI:
@@ -19,6 +20,9 @@ class AppBlockerGUI:
         self.app_dir = self.get_app_directory()
         self.config_path = self.app_dir / "config.json"
         self.log_path = self.app_dir / "usage_log.json"
+
+        # Initialize autostart manager
+        self.autostart_manager = AutostartManager()
 
         self.monitoring_process = None
         self.is_monitoring = False
@@ -71,10 +75,15 @@ class AppBlockerGUI:
                 print(f"Loaded default configuration from {default_config_path}")
             except FileNotFoundError:
                 # Fallback to hardcoded default
-                self.config = {"apps": {}, "check_interval": 30, "enabled": False}
+                self.config = {"apps": {}, "check_interval": 30, "enabled": False, "autostart": False}
                 print("Using hardcoded default configuration")
 
             # Save the config to create user's config file
+            self.save_config()
+        
+        # Ensure autostart field exists in config
+        if "autostart" not in self.config:
+            self.config["autostart"] = False
             self.save_config()
 
     def save_config(self):
@@ -142,6 +151,7 @@ class AppBlockerGUI:
         settings_frame = ttk.LabelFrame(main_frame, text="Settings", padding="10")
         settings_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E))
 
+        # Check interval setting
         ttk.Label(settings_frame, text="Check Interval (seconds):").grid(
             row=0, column=0, sticky=tk.W
         )
@@ -156,6 +166,22 @@ class AppBlockerGUI:
         ttk.Button(
             settings_frame, text="Save Settings", command=self.save_settings
         ).grid(row=0, column=2, padx=(10, 0))
+
+        # Autostart setting
+        # Sync config with actual registry state
+        actual_autostart = self.autostart_manager.is_autostart_enabled()
+        if actual_autostart != self.config.get("autostart", False):
+            self.config["autostart"] = actual_autostart
+            self.save_config()
+        
+        self.autostart_var = tk.BooleanVar(value=self.config.get("autostart", False))
+        autostart_checkbox = ttk.Checkbutton(
+            settings_frame,
+            text="Start with Windows (autostart)",
+            variable=self.autostart_var,
+            command=self.toggle_autostart
+        )
+        autostart_checkbox.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=(10, 0))
 
         # Configure grid weights
         self.root.columnconfigure(0, weight=1)
@@ -261,6 +287,24 @@ class AppBlockerGUI:
             messagebox.showinfo("Success", "Settings saved successfully!")
         except ValueError as e:
             messagebox.showerror("Error", f"Invalid interval: {e}")
+
+    def toggle_autostart(self):
+        """Handle autostart checkbox toggle"""
+        try:
+            enabled = self.autostart_var.get()
+            
+            # Update registry
+            if self.autostart_manager.set_autostart(enabled):
+                # Update config
+                self.config["autostart"] = enabled
+                self.save_config()
+            else:
+                # Revert checkbox if operation failed
+                self.autostart_var.set(not enabled)
+                
+        except Exception as e:
+            # Revert checkbox on error
+            self.autostart_var.set(not self.autostart_var.get())
 
     def toggle_monitoring(self):
         if self.is_monitoring:
