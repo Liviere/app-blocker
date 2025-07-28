@@ -6,20 +6,23 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+
 def get_app_directory():
     """Get application directory - works with both development and PyInstaller"""
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         # Running as compiled executable
         return Path(sys.executable).parent
     else:
         # Running as script
         return Path(__file__).parent
 
+
 # Use application directory for config files
 APP_DIR = get_app_directory()
 
 CONFIG_PATH = APP_DIR / "config.json"
 LOG_PATH = APP_DIR / "usage_log.json"
+
 
 def load_config():
     """Load configuration from file"""
@@ -38,13 +41,17 @@ def load_config():
                 json.dump(config, f, indent=2)
             return config
         except FileNotFoundError:
-            print("Config file not found. Please run GUI first to configure applications.")
+            print(
+                "Config file not found. Please run GUI first to configure applications."
+            )
             return None
+
 
 def save_log(usage_log):
     """Save usage log to file"""
     with open(LOG_PATH, "w") as f:
         json.dump(usage_log, f, indent=2)
+
 
 def load_usage_log():
     """Load usage log from file"""
@@ -52,6 +59,7 @@ def load_usage_log():
         with open(LOG_PATH, "r") as f:
             return json.load(f)
     return {}
+
 
 def kill_app(app_name):
     """Kill application by name"""
@@ -62,12 +70,13 @@ def kill_app(app_name):
         os.system(f"pkill -f {app_name}")
     print(f"[{datetime.now().strftime('%H:%M:%S')}] CLOSED: {app_name}")
 
+
 def monitor():
     """Main monitoring function"""
     config = load_config()
     if config is None:
         sys.exit(1)
-    
+
     apps = config["apps"]
     interval = config.get("check_interval", 30)
 
@@ -89,7 +98,7 @@ def monitor():
 
     print("⏳ Monitoring applications...")
     print(f"📱 Tracking: {', '.join(apps.keys())}")
-    
+
     while True:
         try:
             now = datetime.now()
@@ -99,21 +108,23 @@ def monitor():
             if current_day not in usage_log:
                 usage_log[current_day] = {app: 0 for app in apps}
 
-            running = {p.name(): p.pid for p in psutil.process_iter(['pid', 'name'])}
+            running = {p.name(): p.pid for p in psutil.process_iter(["pid", "name"])}
 
             for app, limit in apps.items():
                 if app in running:
                     usage_log[current_day][app] += interval
                     remaining = limit - usage_log[current_day][app]
-                    
-                    print(f"[{now.strftime('%H:%M:%S')}] {app} - Used: {usage_log[current_day][app]}s, Remaining: {remaining}s")
-                    
+
+                    print(
+                        f"[{now.strftime('%H:%M:%S')}] {app} - Used: {usage_log[current_day][app]}s, Remaining: {remaining}s"
+                    )
+
                     if usage_log[current_day][app] >= limit:
                         kill_app(app)
 
             save_log(usage_log)
             time.sleep(interval)
-            
+
         except KeyboardInterrupt:
             print("\n⏹️ Monitoring stopped by user")
             break
@@ -121,9 +132,11 @@ def monitor():
             print(f"Error: {e}")
             time.sleep(5)
 
+
 def main():
     """Entry point for the app-blocker command"""
     monitor()
+
 
 if __name__ == "__main__":
     main()
