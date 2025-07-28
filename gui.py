@@ -195,11 +195,19 @@ class AppBlockerGUI:
 
     def add_app(self):
         dialog = AppDialog(self.root, "Add Application")
-        if dialog.result:
-            app_name, time_limit = dialog.result
-            self.config["apps"][app_name] = time_limit * 60  # Convert to seconds
-            self.save_config()
-            self.refresh_apps_list()
+        result = dialog.show()
+        if result:
+            app_name, time_limit = result
+            try:
+                self.config["apps"][app_name] = time_limit * 60  # Convert to seconds
+                self.save_config()
+                self.refresh_apps_list()
+                print(f"Added application: {app_name} with limit {time_limit} minutes")
+            except ValueError as e:
+                messagebox.showerror("Error", f"Invalid input: {e}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to add application: {e}")
+                print(f"Error adding application: {e}")
 
     def edit_app(self):
         selection = self.apps_tree.selection()
@@ -212,8 +220,9 @@ class AppBlockerGUI:
         current_limit = self.config["apps"][app_name] // 60  # Convert to minutes
 
         dialog = AppDialog(self.root, "Edit Application", app_name, current_limit)
-        if dialog.result:
-            new_app_name, time_limit = dialog.result
+        result = dialog.show()
+        if result:
+            new_app_name, time_limit = result
 
             # Remove old entry if name changed
             if new_app_name != app_name:
@@ -369,6 +378,11 @@ class AppDialog:
 
         # Focus on app name entry
         self.dialog.focus_set()
+    
+    def show(self):
+        """Show dialog and return result"""
+        self.dialog.wait_window()
+        return self.result
 
     def ok_clicked(self):
         try:

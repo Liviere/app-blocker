@@ -1,5 +1,5 @@
 {
-  "apps": {},
-  "check_interval": 30,
-  "enabled": false
+	"apps": {},
+	"check_interval": 30,
+	"enabled": false
 }
