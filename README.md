@@ -145,3 +145,70 @@ poetry run flake8 .
 # Run tests
 poetry run pytest
 ```
+
+## 📦 Building Distribution
+
+### Prerequisites
+
+1. **Install Inno Setup** (for Windows installer):
+
+   - Download from: https://jrsoftware.org/isinfo.php
+   - Install with default settings
+
+2. **Install development dependencies**:
+   ```bash
+   poetry install
+   ```
+
+### Build Process
+
+Using the provided batch script:
+
+```bash
+# Run complete build process (clean, test, build, installer)
+make.bat all
+
+# Or individual steps:
+make.bat clean     # Clean previous builds
+make.bat test      # Run tests
+make.bat build     # Build executables only
+make.bat installer # Create installer only
+```
+
+### Distribution Contents
+
+After building, you'll find:
+
+- **`dist/app-blocker/`** - Portable application folder
+
+  - `app-blocker.exe` - Command-line monitor
+  - `app-blocker-gui.exe` - GUI application
+  - `config.default.json` - Default configuration
+  - `App Blocker GUI.bat` - GUI launcher
+  - `App Blocker Monitor.bat` - Monitor launcher
+  - `README.md` - Documentation
+
+- **`dist/installer/app-blocker-setup-{version}.exe`** - Windows installer
+
+### Windows Installer Features
+
+- ✅ **Easy Installation**: One-click setup
+- ✅ **Desktop Shortcuts**: Optional desktop icons
+- ✅ **Start Menu Integration**: App appears in start menu
+- ✅ **Automatic Config**: Creates default configuration from template
+- ✅ **Multi-language**: Supports English and Polish
+- ✅ **Clean Uninstall**: Removes all components including user configs
+- ✅ **Auto-launch**: Option to start app after installation
+
+### Testing Distribution
+
+```bash
+# Test built executables
+poetry run python test_distribution.py
+```
+
+This will verify:
+
+- All required files are present
+- Executables run correctly
+- Batch files work properly

@@ -33,6 +33,11 @@ MANIFEST
 build/
 dist/
 
+# Inno Setup
+*.iss
+Output/
+assets/icon.ico.placeholder
+
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
