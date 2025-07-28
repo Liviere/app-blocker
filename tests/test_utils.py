@@ -26,7 +26,7 @@ class ConfigManager:
 
         # Default test config
         if config_data is None:
-            config_data = {"apps": {}, "check_interval": 30, "enabled": False, "autostart": False}
+            config_data = {"apps": {}, "check_interval": 30, "enabled": False, "autostart": False, "minimize_to_tray": False}
 
         # Default test log
         if log_data is None:

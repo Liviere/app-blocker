@@ -10,12 +10,22 @@
 - 🖥️ **Graphical Interface** - easy management through GUI
 - 📈 **Usage History** - data is saved day by day
 - ⚙️ **Configurable Interval** - set how often the app checks processes
+- 🚀 **Windows Autostart** - automatically start with Windows system boot
+- 📱 **System Tray Integration** - minimize to system tray for background operation
+- 💾 **State Persistence** - remembers monitoring state between sessions
 
 ## 🚀 Requirements
 
-- **Python 3.8.1+**
-- **Windows** (app uses `taskkill` to close processes)
+- **Python 3.9+**
+- **Windows** (app uses `taskkill` to close processes and Windows registry for autostart)
 - **Poetry** (for dependency management)
+
+### Dependencies
+
+- `psutil` - for process monitoring
+- `pystray` - for system tray functionality
+- `pillow` - for tray icon image processing
+- `tkinter` - graphical interface (built into Python)
 
 ## 📦 Installation
 
@@ -61,24 +71,47 @@
 If you prefer not to use Poetry, you can install dependencies manually:
 
 ```bash
-pip install psutil
+pip install psutil pystray pillow
 python gui.py  # For GUI
 python main.py # For monitoring
 ```
 
 ## 🎯 Usage
 
+### Basic Setup
+
 1. **Start the GUI**: `poetry run python gui.py`
 2. **Add applications** you want to monitor by clicking "Add App"
 3. **Set time limits** for each application (in minutes)
-4. **Enable monitoring** by checking the "Enable Monitoring" checkbox
-5. **Start monitoring** by clicking "Start Monitoring"
+4. **Start monitoring** by clicking "Start Monitoring"
+
+### Advanced Features
+
+#### Windows Autostart
+
+- Check **"Start with Windows (autostart)"** to automatically launch App Blocker when Windows starts
+- If system tray is enabled, the app will start minimized to tray on system boot
+
+#### System Tray Integration
+
+- Check **"Minimize to system tray"** to enable tray functionality
+- Close button will minimize to tray instead of quitting the application
+- Right-click tray icon for quick access to start/stop monitoring and show window
+- Tray icon color changes: blue (stopped), green (monitoring active)
+
+#### State Persistence
+
+- App automatically remembers if monitoring was active when closed
+- On next startup, monitoring will resume automatically if it was previously enabled
+- Only works if applications are configured for monitoring
 
 The application will:
 
 - Track time spent in monitored applications
 - Automatically close applications when daily limits are exceeded
 - Save usage history for each day
+- Remember monitoring state between sessions
+- Run in background via system tray (if enabled)
 
 ## 🔧 Configuration
 
@@ -86,12 +119,9 @@ Configuration is stored in `config.json`:
 
 - `apps`: Dictionary of applications and their daily limits (in minutes)
 - `check_interval`: How often to check processes (in seconds)
-- `enabled`: Whether monitoring is active
-
-## 📊 Dependencies
-
-- `psutil` - for process monitoring
-- `tkinter` - graphical interface (built into Python)
+- `enabled`: Whether monitoring is active (automatically managed)
+- `autostart`: Enable automatic startup with Windows
+- `minimize_to_tray`: Enable system tray functionality
 
 ## 🧪 Testing
 
@@ -116,6 +146,8 @@ poetry run pytest --cov=. --cov-report=html
 ### Test Structure
 
 - `tests/test_app_blocker.py` - Basic functionality tests
+- `tests/test_autostart.py` - Windows autostart functionality tests
+- `tests/test_system_tray.py` - System tray integration tests
 - `tests/test_isolated_config.py` - Advanced tests with isolated configuration
 - `tests/test_with_utils.py` - Example tests using test utilities
 - `tests/test_utils.py` - Utilities for creating isolated test environments
@@ -212,3 +244,38 @@ This will verify:
 - All required files are present
 - Executables run correctly
 - Batch files work properly
+
+## 📋 Configuration Examples
+
+### Command Line Usage
+
+```bash
+# Start GUI normally
+poetry run python gui.py
+
+# Start GUI minimized to tray (if tray is enabled in config)
+poetry run python gui.py --minimized
+
+# Start monitoring only (background process)
+poetry run python main.py
+```
+
+## 🔧 Troubleshooting
+
+### System Tray Issues
+
+- If tray icon doesn't appear, ensure `pystray` and `pillow` are installed
+- On some systems, tray icons may be hidden in the system tray overflow area
+- Restart the application if tray functionality stops working
+
+### Autostart Issues
+
+- Autostart uses Windows Registry (`HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`)
+- If autostart doesn't work, check Windows Task Manager > Startup tab
+- Administrator privileges are not required for current user autostart
+
+### Monitoring Issues
+
+- If monitoring doesn't start automatically, check that applications are configured
+- Ensure the monitoring process has permission to terminate target applications
+- Check the console output for error messages

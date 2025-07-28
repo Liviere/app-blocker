@@ -105,7 +105,8 @@ class TestAutostartManager:
             
             with patch.object(self.manager, 'app_dir', test_dir):
                 result = self.manager.get_gui_executable_path()
-                assert result == str(gui_exe)
+                expected = f'"{gui_exe}"'
+                assert result == expected
 
     def test_get_gui_executable_path_script_mode(self):
         """Test getting GUI executable path in script mode"""
@@ -133,6 +134,61 @@ class TestAutostartManager:
             result = self.manager.set_autostart(False)
             assert result is True
             mock_disable.assert_called_once()
+
+    def test_get_gui_executable_path_with_args_frozen(self):
+        """Test getting GUI executable path with extra arguments in frozen mode"""
+        with patch('sys.frozen', True, create=True):
+            test_dir = Path(self.temp_dir)
+            gui_exe = test_dir / "app-blocker-gui.exe"
+            gui_exe.touch()
+            
+            with patch.object(self.manager, 'app_dir', test_dir):
+                result = self.manager.get_gui_executable_path("--minimized")
+                expected = f'"{gui_exe}" --minimized'
+                assert result == expected
+
+    def test_get_gui_executable_path_with_args_script(self):
+        """Test getting GUI executable path with extra arguments in script mode"""
+        with patch('sys.frozen', False, create=True):
+            test_dir = Path(self.temp_dir)
+            gui_py = test_dir / "gui.py"
+            gui_py.touch()
+            
+            with patch.object(self.manager, 'app_dir', test_dir):
+                with patch('sys.executable', 'python.exe'):
+                    result = self.manager.get_gui_executable_path("--minimized")
+                    expected = f'"python.exe" "{gui_py}" --minimized'
+                    assert result == expected
+
+    def test_should_start_minimized_true(self):
+        """Test should_start_minimized when tray is enabled"""
+        config_data = {"minimize_to_tray": True}
+        config_path = Path(self.temp_dir) / "config.json"
+        
+        with open(config_path, "w") as f:
+            json.dump(config_data, f)
+        
+        with patch.object(self.manager, 'app_dir', Path(self.temp_dir)):
+            result = self.manager.should_start_minimized()
+            assert result is True
+
+    def test_should_start_minimized_false(self):
+        """Test should_start_minimized when tray is disabled"""
+        config_data = {"minimize_to_tray": False}
+        config_path = Path(self.temp_dir) / "config.json"
+        
+        with open(config_path, "w") as f:
+            json.dump(config_data, f)
+        
+        with patch.object(self.manager, 'app_dir', Path(self.temp_dir)):
+            result = self.manager.should_start_minimized()
+            assert result is False
+
+    def test_should_start_minimized_no_config(self):
+        """Test should_start_minimized when config doesn't exist"""
+        with patch.object(self.manager, 'app_dir', Path(self.temp_dir)):
+            result = self.manager.should_start_minimized()
+            assert result is False
 
 
 class TestConvenienceFunctions:

@@ -2,5 +2,6 @@
 	"apps": {},
 	"check_interval": 30,
 	"enabled": false,
-	"autostart": false
+	"autostart": false,
+	"minimize_to_tray": false
 }

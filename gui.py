@@ -8,6 +8,7 @@ from datetime import datetime
 import psutil
 from pathlib import Path
 from autostart import AutostartManager
+from system_tray import SystemTrayManager, is_tray_supported
 
 
 class AppBlockerGUI:
@@ -24,12 +25,25 @@ class AppBlockerGUI:
         # Initialize autostart manager
         self.autostart_manager = AutostartManager()
 
+        # Initialize system tray if supported
+        self.tray_manager = None
+        self.tray_enabled = False
+        if is_tray_supported():
+            self.tray_manager = SystemTrayManager(self)
+            self.tray_enabled = True
+
         self.monitoring_process = None
         self.is_monitoring = False
 
         self.load_config()
         self.create_widgets()
         self.update_status()
+        
+        # Setup tray if enabled
+        self.setup_tray_if_enabled()
+        
+        # Restore monitoring state if it was enabled
+        self.restore_monitoring_state()
 
     def get_app_directory(self):
         """Get application directory - works with both development and PyInstaller"""
@@ -75,15 +89,19 @@ class AppBlockerGUI:
                 print(f"Loaded default configuration from {default_config_path}")
             except FileNotFoundError:
                 # Fallback to hardcoded default
-                self.config = {"apps": {}, "check_interval": 30, "enabled": False, "autostart": False}
+                self.config = {"apps": {}, "check_interval": 30, "enabled": False, "autostart": False, "minimize_to_tray": False}
                 print("Using hardcoded default configuration")
 
             # Save the config to create user's config file
             self.save_config()
         
-        # Ensure autostart field exists in config
+        # Ensure required fields exist in config
         if "autostart" not in self.config:
             self.config["autostart"] = False
+            self.save_config()
+        
+        if "minimize_to_tray" not in self.config:
+            self.config["minimize_to_tray"] = False
             self.save_config()
 
     def save_config(self):
@@ -182,6 +200,17 @@ class AppBlockerGUI:
             command=self.toggle_autostart
         )
         autostart_checkbox.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=(10, 0))
+
+        # System tray setting (only if supported)
+        if self.tray_enabled:
+            self.tray_var = tk.BooleanVar(value=self.config.get("minimize_to_tray", False))
+            tray_checkbox = ttk.Checkbutton(
+                settings_frame,
+                text="Minimize to system tray",
+                variable=self.tray_var,
+                command=self.toggle_tray_setting
+            )
+            tray_checkbox.grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=(5, 0))
 
         # Configure grid weights
         self.root.columnconfigure(0, weight=1)
@@ -306,6 +335,33 @@ class AppBlockerGUI:
             # Revert checkbox on error
             self.autostart_var.set(not self.autostart_var.get())
 
+    def toggle_tray_setting(self):
+        """Handle minimize to tray checkbox toggle"""
+        try:
+            enabled = self.tray_var.get()
+            self.config["minimize_to_tray"] = enabled
+            self.save_config()
+            
+            # Update autostart entry if autostart is enabled
+            # This will update the registry entry to include/exclude --minimized flag
+            if self.config.get("autostart", False):
+                self.autostart_manager.enable_autostart()
+            
+            # Start or stop tray based on setting
+            if enabled and self.tray_manager:
+                if not self.tray_manager.is_running:
+                    self.tray_manager.start_tray()
+                    # Setup window close behavior
+                    self.root.protocol("WM_DELETE_WINDOW", self.on_window_close)
+            elif not enabled and self.tray_manager:
+                self.tray_manager.stop_tray()
+                # Restore normal close behavior
+                self.root.protocol("WM_DELETE_WINDOW", self.on_window_close_quit)
+                
+        except Exception as e:
+            # Revert checkbox on error
+            self.tray_var.set(not self.tray_var.get())
+
     def toggle_monitoring(self):
         if self.is_monitoring:
             self.stop_monitoring()
@@ -347,20 +403,35 @@ class AppBlockerGUI:
             self.save_config()
             self.update_status()
 
+            # Update tray
+            if self.tray_manager and self.tray_manager.is_running:
+                self.tray_manager.update_menu()
+                self.tray_manager.update_icon_color()
+
             # Start refresh timer
             self.refresh_timer()
         except Exception as e:
             messagebox.showerror("Error", f"Failed to start monitoring: {e}")
 
     def stop_monitoring(self):
-        if self.monitoring_process:
-            self.monitoring_process.terminate()
-            self.monitoring_process = None
+        """Stop monitoring and update configuration"""
+        self._terminate_monitoring_process()
 
         self.is_monitoring = False
         self.config["enabled"] = False
         self.save_config()
         self.update_status()
+
+        # Update tray
+        if self.tray_manager and self.tray_manager.is_running:
+            self.tray_manager.update_menu()
+            self.tray_manager.update_icon_color()
+
+    def _terminate_monitoring_process(self):
+        """Terminate monitoring process without changing configuration"""
+        if self.monitoring_process:
+            self.monitoring_process.terminate()
+            self.monitoring_process = None
 
     def update_status(self):
         if self.is_monitoring:
@@ -378,6 +449,60 @@ class AppBlockerGUI:
                 self.stop_monitoring()
             else:
                 self.root.after(5000, self.refresh_timer)  # Refresh every 5 seconds
+
+    def on_window_close(self):
+        """Handle window close event - minimize to tray if enabled"""
+        if self.config.get("minimize_to_tray", False) and self.tray_manager and self.tray_manager.is_running:
+            # Minimize to tray instead of closing
+            self.tray_manager.hide_window()
+        else:
+            # Normal quit behavior
+            self.on_window_close_quit()
+
+    def on_window_close_quit(self):
+        """Handle window close event - quit application"""
+        # Only terminate the process, preserve the enabled state for next startup
+        self._terminate_monitoring_process()
+        if self.tray_manager:
+            self.tray_manager.stop_tray()
+        self.root.quit()
+        self.root.destroy()
+
+    def setup_tray_if_enabled(self):
+        """Setup tray on startup if enabled in config"""
+        if self.config.get("minimize_to_tray", False) and self.tray_manager:
+            if self.tray_manager.start_tray():
+                self.root.protocol("WM_DELETE_WINDOW", self.on_window_close)
+            else:
+                # If tray failed to start, disable the setting
+                self.config["minimize_to_tray"] = False
+                self.save_config()
+                if hasattr(self, 'tray_var'):
+                    self.tray_var.set(False)
+
+    def restore_monitoring_state(self):
+        """Restore monitoring state from config on startup"""
+        print("Restoring monitoring state from config...")
+        if self.config.get("enabled", False):
+            # Only restore if there are apps to monitor
+            if self.config.get("apps", {}):
+                print("Restoring monitoring state from previous session...")
+                try:
+                    self.start_monitoring()
+                    print("Monitoring restored successfully")
+                except Exception as e:
+                    print(f"Failed to restore monitoring: {e}")
+                    # If restore fails, update config to reflect actual state
+                    self.config["enabled"] = False
+                    self.save_config()
+            else:
+                print("No apps configured for monitoring - disabling enabled state")
+                # If no apps configured, disable monitoring state
+                self.config["enabled"] = False
+                self.save_config()
+
+        else:
+            print("Monitoring was not enabled in previous session, skipping restore")
 
 
 class AppDialog:
@@ -454,9 +579,31 @@ class AppDialog:
 
 def main():
     """Entry point for the app-blocker-gui command"""
+    import argparse
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="App Blocker GUI")
+    parser.add_argument("--minimized", action="store_true", 
+                       help="Start minimized to system tray")
+    args = parser.parse_args()
+    
     root = tk.Tk()
     app = AppBlockerGUI(root)
-    root.protocol("WM_DELETE_WINDOW", lambda: (app.stop_monitoring(), root.destroy()))
+    
+    # Set up appropriate close behavior based on tray settings
+    if app.config.get("minimize_to_tray", False) and app.tray_manager:
+        root.protocol("WM_DELETE_WINDOW", app.on_window_close)
+    else:
+        root.protocol("WM_DELETE_WINDOW", app.on_window_close_quit)
+    
+    # If started with --minimized flag and tray is enabled, start minimized
+    if args.minimized and app.config.get("minimize_to_tray", False) and app.tray_manager:
+        if app.tray_manager.is_running:
+            # Hide window immediately after startup
+            root.after(100, app.tray_manager.hide_window)
+        else:
+            print("Warning: --minimized flag used but tray is not available")
+    
     root.mainloop()
 
 

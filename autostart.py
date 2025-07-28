@@ -27,28 +27,52 @@ class AutostartManager:
             # Running as script
             return Path(__file__).parent
     
-    def get_gui_executable_path(self):
+    def get_gui_executable_path(self, extra_args=None):
         """Get path to GUI executable for autostart"""
         if getattr(sys, "frozen", False):
             # Look for compiled GUI executable
             gui_path = self.app_dir / "app-blocker-gui.exe"
             if gui_path.exists():
-                return str(gui_path)
+                path = str(gui_path)
+            else:
+                # Alternative name
+                gui_path = self.app_dir / "gui.exe"
+                if gui_path.exists():
+                    path = str(gui_path)
+                else:
+                    # If neither exists, use current executable if it's the GUI
+                    if "gui" in sys.executable.lower():
+                        path = sys.executable
+                    else:
+                        raise FileNotFoundError("Could not find GUI executable for autostart")
             
-            # Alternative name
-            gui_path = self.app_dir / "gui.exe"
-            if gui_path.exists():
-                return str(gui_path)
+            # Add extra arguments if provided
+            if extra_args:
+                path = f'"{path}" {extra_args}'
+            elif not path.startswith('"'):
+                path = f'"{path}"'
             
-            # If neither exists, use current executable if it's the GUI
-            if "gui" in sys.executable.lower():
-                return sys.executable
-            
-            raise FileNotFoundError("Could not find GUI executable for autostart")
+            return path
         else:
             # Development mode - use Python script
             gui_path = self.app_dir / "gui.py"
-            return f'"{sys.executable}" "{gui_path}"'
+            base_cmd = f'"{sys.executable}" "{gui_path}"'
+            if extra_args:
+                return f'{base_cmd} {extra_args}'
+            return base_cmd
+
+    def should_start_minimized(self):
+        """Check if app should start minimized based on config"""
+        try:
+            config_path = self.app_dir / "config.json"
+            if config_path.exists():
+                import json
+                with open(config_path, "r") as f:
+                    config = json.load(f)
+                return config.get("minimize_to_tray", False)
+        except Exception as e:
+            print(f"Error reading config for autostart: {e}")
+        return False
     
     def is_autostart_enabled(self):
         """Check if autostart is currently enabled"""
@@ -66,7 +90,12 @@ class AutostartManager:
     def enable_autostart(self):
         """Enable autostart by adding registry entry"""
         try:
-            executable_path = self.get_gui_executable_path()
+            # Check if should start minimized
+            extra_args = ""
+            if self.should_start_minimized():
+                extra_args = "--minimized"
+            
+            executable_path = self.get_gui_executable_path(extra_args if extra_args else None)
             
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.REGISTRY_KEY, 0, winreg.KEY_SET_VALUE) as key:
                 winreg.SetValueEx(key, self.APP_NAME, 0, winreg.REG_SZ, executable_path)
