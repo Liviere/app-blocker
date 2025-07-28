@@ -43,12 +43,16 @@ class AppBlockerGUI:
     def get_main_executable(self):
         """Get path to main.py or main.exe"""
         if getattr(sys, "frozen", False):
-            # If we're compiled, look for main.exe in same directory
+            # If we're compiled, look for app-blocker.exe in same directory
+            main_path = self.app_dir / "app-blocker.exe"
+            if main_path.exists():
+                return str(main_path)
+            # Alternative name
             main_path = self.app_dir / "main.exe"
             if main_path.exists():
                 return str(main_path)
-            # Fallback to current executable with main argument
-            return [sys.executable, "main"]
+            # If neither exists, we have a problem
+            raise FileNotFoundError("Could not find monitoring executable (app-blocker.exe or main.exe)")
         else:
             # Development mode - use Python script
             main_path = self.app_dir / "main.py"
@@ -274,6 +278,7 @@ class AppBlockerGUI:
         try:
             # Get the correct executable path
             main_cmd = self.get_main_executable()
+            print(f"Starting monitoring with command: {main_cmd}")
 
             # Start monitoring in subprocess
             if isinstance(main_cmd, list):
