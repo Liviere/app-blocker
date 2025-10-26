@@ -5,6 +5,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
+from single_instance import ensure_single_instance
 
 
 def get_app_directory():
@@ -116,7 +117,9 @@ def monitor():
                     remaining = limit - usage_log[current_day][app]
 
                     print(
-                        f"[{now.strftime('%H:%M:%S')}] {app} - Used: {usage_log[current_day][app]}s, Remaining: {remaining}s"
+                        f"[{now.strftime('%H:%M:%S')}] {app} - "
+                        f"Used: {usage_log[current_day][app]}s, "
+                        f"Remaining: {remaining}s"
                     )
 
                     if usage_log[current_day][app] >= limit:
@@ -135,7 +138,19 @@ def monitor():
 
 def main():
     """Entry point for the app-blocker command"""
-    monitor()
+    # Check for single instance - only one monitor instance allowed
+    single_instance_lock = ensure_single_instance("AppBlocker_Monitor")
+    if single_instance_lock is None:
+        # Another instance is already running
+        print("App Blocker monitoring is already running. Only one instance allowed.")
+        sys.exit(1)
+
+    try:
+        monitor()
+    finally:
+        # Release the lock when monitoring exits
+        if single_instance_lock:
+            single_instance_lock.release()
 
 
 if __name__ == "__main__":
