@@ -99,10 +99,11 @@ class TestSingleInstanceIntegration:
             pytest.skip("Subprocess test primarily for Windows")
 
         # Create a test script that tries to acquire a lock
-        test_script = """
+        # Ensure the subprocess can import our project module by injecting the repo root
+        repo_root = str(Path(__file__).parent.parent.resolve())
+        test_script = f"""
 import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, r"{repo_root}")
 from single_instance import ensure_single_instance
 import time
 
