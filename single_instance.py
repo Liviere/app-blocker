@@ -140,7 +140,7 @@ class SingleInstance:
         if not self.is_locked:
             return
 
-        if sys.platform == "win32" and self.mutex:
+        if self.mutex:
             try:
                 import ctypes
 
