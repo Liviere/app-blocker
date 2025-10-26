@@ -3,19 +3,21 @@ from tkinter import ttk, messagebox
 import json
 import subprocess
 import sys
-import os
 from datetime import datetime
-import psutil
 from pathlib import Path
 from autostart import AutostartManager
 from system_tray import SystemTrayManager, is_tray_supported
+from single_instance import ensure_single_instance
 
 
 class AppBlockerGUI:
-    def __init__(self, root):
+    def __init__(self, root, single_instance_lock=None):
         self.root = root
         self.root.title("App Blocker - Manager")
         self.root.geometry("600x500")
+
+        # Store single instance lock to keep it alive
+        self.single_instance_lock = single_instance_lock
 
         # Use application directory for config files
         self.app_dir = self.get_app_directory()
@@ -38,10 +40,10 @@ class AppBlockerGUI:
         self.load_config()
         self.create_widgets()
         self.update_status()
-        
+
         # Setup tray if enabled
         self.setup_tray_if_enabled()
-        
+
         # Restore monitoring state if it was enabled
         self.restore_monitoring_state()
 
@@ -70,7 +72,9 @@ class AppBlockerGUI:
             if main_path.exists():
                 return str(main_path)
             # If neither exists, we have a problem
-            raise FileNotFoundError("Could not find monitoring executable (app-blocker.exe or main.exe)")
+            raise FileNotFoundError(
+                "Could not find monitoring executable (app-blocker.exe or main.exe)"
+            )
         else:
             # Development mode - use Python script
             main_path = self.app_dir / "main.py"
@@ -89,17 +93,23 @@ class AppBlockerGUI:
                 print(f"Loaded default configuration from {default_config_path}")
             except FileNotFoundError:
                 # Fallback to hardcoded default
-                self.config = {"apps": {}, "check_interval": 30, "enabled": False, "autostart": False, "minimize_to_tray": False}
+                self.config = {
+                    "apps": {},
+                    "check_interval": 30,
+                    "enabled": False,
+                    "autostart": False,
+                    "minimize_to_tray": False,
+                }
                 print("Using hardcoded default configuration")
 
             # Save the config to create user's config file
             self.save_config()
-        
+
         # Ensure required fields exist in config
         if "autostart" not in self.config:
             self.config["autostart"] = False
             self.save_config()
-        
+
         if "minimize_to_tray" not in self.config:
             self.config["minimize_to_tray"] = False
             self.save_config()
@@ -191,24 +201,28 @@ class AppBlockerGUI:
         if actual_autostart != self.config.get("autostart", False):
             self.config["autostart"] = actual_autostart
             self.save_config()
-        
+
         self.autostart_var = tk.BooleanVar(value=self.config.get("autostart", False))
         autostart_checkbox = ttk.Checkbutton(
             settings_frame,
             text="Start with Windows (autostart)",
             variable=self.autostart_var,
-            command=self.toggle_autostart
+            command=self.toggle_autostart,
         )
-        autostart_checkbox.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=(10, 0))
+        autostart_checkbox.grid(
+            row=1, column=0, columnspan=3, sticky=tk.W, pady=(10, 0)
+        )
 
         # System tray setting (only if supported)
         if self.tray_enabled:
-            self.tray_var = tk.BooleanVar(value=self.config.get("minimize_to_tray", False))
+            self.tray_var = tk.BooleanVar(
+                value=self.config.get("minimize_to_tray", False)
+            )
             tray_checkbox = ttk.Checkbutton(
                 settings_frame,
                 text="Minimize to system tray",
                 variable=self.tray_var,
-                command=self.toggle_tray_setting
+                command=self.toggle_tray_setting,
             )
             tray_checkbox.grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=(5, 0))
 
@@ -321,7 +335,7 @@ class AppBlockerGUI:
         """Handle autostart checkbox toggle"""
         try:
             enabled = self.autostart_var.get()
-            
+
             # Update registry
             if self.autostart_manager.set_autostart(enabled):
                 # Update config
@@ -330,8 +344,8 @@ class AppBlockerGUI:
             else:
                 # Revert checkbox if operation failed
                 self.autostart_var.set(not enabled)
-                
-        except Exception as e:
+
+        except Exception:
             # Revert checkbox on error
             self.autostart_var.set(not self.autostart_var.get())
 
@@ -341,12 +355,12 @@ class AppBlockerGUI:
             enabled = self.tray_var.get()
             self.config["minimize_to_tray"] = enabled
             self.save_config()
-            
+
             # Update autostart entry if autostart is enabled
             # This will update the registry entry to include/exclude --minimized flag
             if self.config.get("autostart", False):
                 self.autostart_manager.enable_autostart()
-            
+
             # Start or stop tray based on setting
             if enabled and self.tray_manager:
                 if not self.tray_manager.is_running:
@@ -357,8 +371,8 @@ class AppBlockerGUI:
                 self.tray_manager.stop_tray()
                 # Restore normal close behavior
                 self.root.protocol("WM_DELETE_WINDOW", self.on_window_close_quit)
-                
-        except Exception as e:
+
+        except Exception:
             # Revert checkbox on error
             self.tray_var.set(not self.tray_var.get())
 
@@ -385,17 +399,17 @@ class AppBlockerGUI:
                 self.monitoring_process = subprocess.Popen(
                     main_cmd,
                     cwd=str(self.app_dir),  # Set working directory
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                    if sys.platform == "win32"
-                    else 0,
+                    creationflags=(
+                        subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+                    ),
                 )
             else:
                 self.monitoring_process = subprocess.Popen(
                     main_cmd,
                     cwd=str(self.app_dir),
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                    if sys.platform == "win32"
-                    else 0,
+                    creationflags=(
+                        subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+                    ),
                 )
 
             self.is_monitoring = True
@@ -452,7 +466,11 @@ class AppBlockerGUI:
 
     def on_window_close(self):
         """Handle window close event - minimize to tray if enabled"""
-        if self.config.get("minimize_to_tray", False) and self.tray_manager and self.tray_manager.is_running:
+        if (
+            self.config.get("minimize_to_tray", False)
+            and self.tray_manager
+            and self.tray_manager.is_running
+        ):
             # Minimize to tray instead of closing
             self.tray_manager.hide_window()
         else:
@@ -477,7 +495,7 @@ class AppBlockerGUI:
                 # If tray failed to start, disable the setting
                 self.config["minimize_to_tray"] = False
                 self.save_config()
-                if hasattr(self, 'tray_var'):
+                if hasattr(self, "tray_var"):
                     self.tray_var.set(False)
 
     def restore_monitoring_state(self):
@@ -552,7 +570,7 @@ class AppDialog:
 
         # Focus on app name entry
         self.dialog.focus_set()
-    
+
     def show(self):
         """Show dialog and return result"""
         self.dialog.wait_window()
@@ -580,31 +598,60 @@ class AppDialog:
 def main():
     """Entry point for the app-blocker-gui command"""
     import argparse
-    
+
+    # Check for single instance - only one GUI instance allowed
+    single_instance_lock = ensure_single_instance("AppBlocker_GUI")
+    if single_instance_lock is None:
+        # Another instance is already running
+        try:
+            # Try to show a message box if possible
+            root = tk.Tk()
+            root.withdraw()  # Hide the main window
+            messagebox.showwarning(
+                "App Blocker Already Running",
+                "App Blocker is already running.\n\n"
+                "Only one instance of the application can run at a time.\n"
+                "Check your system tray or taskbar for the existing instance.",
+            )
+            root.destroy()
+        except Exception:
+            # If tkinter fails, just print to console
+            print("App Blocker is already running. Only one instance allowed.")
+        sys.exit(1)
+
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="App Blocker GUI")
-    parser.add_argument("--minimized", action="store_true", 
-                       help="Start minimized to system tray")
+    parser.add_argument(
+        "--minimized", action="store_true", help="Start minimized to system tray"
+    )
     args = parser.parse_args()
-    
+
     root = tk.Tk()
-    app = AppBlockerGUI(root)
-    
+    app = AppBlockerGUI(root, single_instance_lock)
+
     # Set up appropriate close behavior based on tray settings
     if app.config.get("minimize_to_tray", False) and app.tray_manager:
         root.protocol("WM_DELETE_WINDOW", app.on_window_close)
     else:
         root.protocol("WM_DELETE_WINDOW", app.on_window_close_quit)
-    
+
     # If started with --minimized flag and tray is enabled, start minimized
-    if args.minimized and app.config.get("minimize_to_tray", False) and app.tray_manager:
+    if (
+        args.minimized
+        and app.config.get("minimize_to_tray", False)
+        and app.tray_manager
+    ):
         if app.tray_manager.is_running:
             # Hide window immediately after startup
             root.after(100, app.tray_manager.hide_window)
         else:
             print("Warning: --minimized flag used but tray is not available")
-    
+
     root.mainloop()
+
+    # Release the lock when application exits
+    if single_instance_lock:
+        single_instance_lock.release()
 
 
 if __name__ == "__main__":
