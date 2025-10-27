@@ -9,6 +9,7 @@ import json
 import time
 import threading
 from pathlib import Path
+from datetime import datetime
 from unittest.mock import patch, Mock, MagicMock
 
 # Add parent directory to path so we can import our modules
@@ -152,8 +153,6 @@ class TestConfigurationReload(unittest.TestCase):
         # Verify that usage log was created for both apps
         with open(self.log_path, "r") as f:
             usage_log = json.load(f)
-
-        from datetime import datetime
 
         today = datetime.now().strftime("%Y-%m-%d")
         self.assertIn(today, usage_log)

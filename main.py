@@ -100,6 +100,9 @@ def monitor():
     while True:
         try:
             # Reload config on each iteration to pick up changes immediately
+            # This allows users to modify time limits, add/remove apps, or change
+            # settings without restarting monitoring. The performance impact is
+            # negligible (loading a small JSON file every 30+ seconds).
             config = load_config()
             if config is None:
                 print("Config file missing. Stopping monitoring.")
