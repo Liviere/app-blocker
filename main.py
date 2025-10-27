@@ -78,15 +78,12 @@ def monitor():
     if config is None:
         sys.exit(1)
 
-    apps = config["apps"]
-    interval = config.get("check_interval", 30)
-
     # Check if monitoring is enabled
     if not config.get("enabled", False):
         print("Monitoring is disabled. Enable it through GUI.")
         sys.exit(0)
 
-    if not apps:
+    if not config["apps"]:
         print("No applications configured for monitoring.")
         sys.exit(0)
 
@@ -95,19 +92,42 @@ def monitor():
     today = datetime.now().strftime("%Y-%m-%d")
 
     if today not in usage_log:
-        usage_log[today] = {app: 0 for app in apps}
+        usage_log[today] = {app: 0 for app in config["apps"]}
 
     print("⏳ Monitoring applications...")
-    print(f"📱 Tracking: {', '.join(apps.keys())}")
+    print(f"📱 Tracking: {', '.join(config['apps'].keys())}")
 
     while True:
         try:
+            # Reload config on each iteration to pick up changes immediately
+            config = load_config()
+            if config is None:
+                print("Config file missing. Stopping monitoring.")
+                break
+
+            apps = config["apps"]
+            interval = config.get("check_interval", 30)
+
+            # Check if monitoring is still enabled
+            if not config.get("enabled", False):
+                print("Monitoring disabled via configuration. Stopping.")
+                break
+
+            if not apps:
+                print("No applications configured. Stopping monitoring.")
+                break
+
             now = datetime.now()
             current_day = now.strftime("%Y-%m-%d")
 
             # Initialize day if needed
             if current_day not in usage_log:
                 usage_log[current_day] = {app: 0 for app in apps}
+
+            # Add any new apps to today's log
+            for app in apps:
+                if app not in usage_log[current_day]:
+                    usage_log[current_day][app] = 0
 
             running = {p.name(): p.pid for p in psutil.process_iter(["pid", "name"])}
 
