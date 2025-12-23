@@ -17,12 +17,14 @@ class ConfigManager:
         self.test_dir = None
         self.config_path = None
         self.log_path = None
+        self.heartbeat_path = None
 
     def setup(self, config_data=None, log_data=None):
         """Set up isolated test environment"""
         self.test_dir = tempfile.mkdtemp()
         self.config_path = Path(self.test_dir) / "config.json"
         self.log_path = Path(self.test_dir) / "usage_log.json"
+        self.heartbeat_path = Path(self.test_dir) / "monitor_heartbeat.json"
 
         # Default test config
         if config_data is None:
@@ -38,6 +40,10 @@ class ConfigManager:
 
         with open(self.log_path, "w") as f:
             json.dump(log_data, f, indent=2)
+
+        # Precreate heartbeat file placeholder
+        with open(self.heartbeat_path, "w") as f:
+            json.dump({}, f, indent=2)
 
         return self.test_dir
 
@@ -84,6 +90,8 @@ def isolated_config(config_data=None, log_data=None):
         # Patch the config paths to point to test files
         with patch("main.CONFIG_PATH", manager.config_path), patch(
             "main.LOG_PATH", manager.log_path
+        ), patch("main.HEARTBEAT_PATH", manager.heartbeat_path), patch(
+            "main.APP_DIR", Path(manager.test_dir)
         ):
             yield manager
 

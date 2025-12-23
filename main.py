@@ -3,8 +3,9 @@ import json
 import time
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
+from logger_utils import get_logger
 from single_instance import ensure_single_instance
 
 
@@ -23,6 +24,20 @@ APP_DIR = get_app_directory()
 
 CONFIG_PATH = APP_DIR / "config.json"
 LOG_PATH = APP_DIR / "usage_log.json"
+HEARTBEAT_PATH = APP_DIR / "monitor_heartbeat.json"
+
+
+def _update_heartbeat(status="running", pid=None):
+    try:
+        heartbeat = {
+            "status": status,
+            "pid": pid or os.getpid(),
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+        with open(HEARTBEAT_PATH, "w") as f:
+            json.dump(heartbeat, f, indent=2)
+    except Exception:
+        pass
 
 
 def load_config():
@@ -62,14 +77,17 @@ def load_usage_log():
     return {}
 
 
-def kill_app(app_name):
+def kill_app(app_name, logger=None):
     """Kill application by name"""
     if sys.platform == "win32":
         os.system(f"taskkill /f /im {app_name}")
     else:
         # For other platforms, you might need different commands
         os.system(f"pkill -f {app_name}")
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] CLOSED: {app_name}")
+    if logger:
+        logger.warning("Closed application due to limit: %s", app_name)
+    else:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] CLOSED: {app_name}")
 
 
 def monitor():
@@ -78,13 +96,19 @@ def monitor():
     if config is None:
         sys.exit(1)
 
+    event_log_enabled = config.get("event_log_enabled", False)
+    logger = get_logger("app_blocker.monitor", APP_DIR, event_log_enabled)
+
+    logger.info("Monitor start")
+    _update_heartbeat("running")
+
     # Check if monitoring is enabled
     if not config.get("enabled", False):
-        print("Monitoring is disabled. Enable it through GUI.")
+        logger.info("Monitoring disabled in config; exiting")
         sys.exit(0)
 
     if not config["apps"]:
-        print("No applications configured for monitoring.")
+        logger.info("No applications configured for monitoring; exiting")
         sys.exit(0)
 
     # Initialize or load log
@@ -94,8 +118,7 @@ def monitor():
     if today not in usage_log:
         usage_log[today] = {app: 0 for app in config["apps"]}
 
-    print("⏳ Monitoring applications...")
-    print(f"📱 Tracking: {', '.join(config['apps'].keys())}")
+    logger.info("Monitoring applications: %s", ", ".join(config["apps"].keys()))
 
     while True:
         try:
@@ -105,7 +128,7 @@ def monitor():
             # negligible (loading a small JSON file every 30+ seconds).
             config = load_config()
             if config is None:
-                print("Config file missing. Stopping monitoring.")
+                logger.error("Config file missing; stopping monitoring")
                 break
 
             apps = config["apps"]
@@ -113,11 +136,11 @@ def monitor():
 
             # Check if monitoring is still enabled
             if not config.get("enabled", False):
-                print("Monitoring disabled via configuration. Stopping.")
+                logger.info("Monitoring disabled via configuration; stopping")
                 break
 
             if not apps:
-                print("No applications configured. Stopping monitoring.")
+                logger.info("No applications configured; stopping monitoring")
                 break
 
             now = datetime.now()
@@ -139,24 +162,29 @@ def monitor():
                     usage_log[current_day][app] += interval
                     remaining = limit - usage_log[current_day][app]
 
-                    print(
-                        f"[{now.strftime('%H:%M:%S')}] {app} - "
-                        f"Used: {usage_log[current_day][app]}s, "
-                        f"Remaining: {remaining}s"
+                    logger.info(
+                        "%s | used=%ss remaining=%ss",
+                        app,
+                        usage_log[current_day][app],
+                        remaining,
                     )
 
                     if usage_log[current_day][app] >= limit:
-                        kill_app(app)
+                        kill_app(app, logger)
 
             save_log(usage_log)
+            _update_heartbeat("running")
             time.sleep(interval)
 
         except KeyboardInterrupt:
-            print("\n⏹️ Monitoring stopped by user")
+            logger.info("Monitoring stopped by user")
             break
         except Exception as e:
-            print(f"Error: {e}")
+            logger.error("Monitoring error: %s", e)
             time.sleep(5)
+
+    logger.info("Monitor stop")
+    _update_heartbeat("stopped")
 
 
 def main():

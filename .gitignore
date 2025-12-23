@@ -124,6 +124,7 @@ dmypy.json
 # User-specific configuration and data files
 config.json
 usage_log.json
+monitor_heartbeat.json
 *.log
 
 # IDE files

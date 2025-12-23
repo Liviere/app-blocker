@@ -3,11 +3,12 @@ from tkinter import ttk, messagebox
 import json
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 from autostart import AutostartManager
 from system_tray import SystemTrayManager, is_tray_supported
 from single_instance import ensure_single_instance
+from logger_utils import get_logger
 
 
 class AppBlockerGUI:
@@ -23,6 +24,7 @@ class AppBlockerGUI:
         self.app_dir = self.get_app_directory()
         self.config_path = self.app_dir / "config.json"
         self.log_path = self.app_dir / "usage_log.json"
+        self.heartbeat_path = self.app_dir / "monitor_heartbeat.json"
 
         # Initialize autostart manager
         self.autostart_manager = AutostartManager()
@@ -38,6 +40,11 @@ class AppBlockerGUI:
         self.is_monitoring = False
 
         self.load_config()
+        self.logger = get_logger(
+            "app_blocker.gui",
+            self.app_dir,
+            self.config.get("event_log_enabled", False),
+        )
         self.create_widgets()
         self.update_status()
 
@@ -112,6 +119,29 @@ class AppBlockerGUI:
 
         if "minimize_to_tray" not in self.config:
             self.config["minimize_to_tray"] = False
+            self.save_config()
+
+        if "watchdog_enabled" not in self.config:
+            self.config["watchdog_enabled"] = True
+            self.save_config()
+
+        if "watchdog_restart" not in self.config:
+            self.config["watchdog_restart"] = True
+            self.save_config()
+
+        if "watchdog_check_interval" not in self.config:
+            self.config["watchdog_check_interval"] = 5
+            self.save_config()
+
+        if "heartbeat_ttl_seconds" not in self.config:
+            # Default to roughly 2 cycles of the monitoring interval plus buffer
+            self.config["heartbeat_ttl_seconds"] = (
+                self.config.get("check_interval", 30) * 2 + 10
+            )
+            self.save_config()
+
+        if "event_log_enabled" not in self.config:
+            self.config["event_log_enabled"] = True
             self.save_config()
 
     def save_config(self):
@@ -417,6 +447,9 @@ class AppBlockerGUI:
             self.save_config()
             self.update_status()
 
+            if self.logger:
+                self.logger.info("Monitor process started")
+
             # Update tray
             if self.tray_manager and self.tray_manager.is_running:
                 self.tray_manager.update_menu()
@@ -435,6 +468,9 @@ class AppBlockerGUI:
         self.config["enabled"] = False
         self.save_config()
         self.update_status()
+
+        if self.logger:
+            self.logger.info("Monitor process stopped")
 
         # Update tray
         if self.tray_manager and self.tray_manager.is_running:
@@ -458,11 +494,12 @@ class AppBlockerGUI:
     def refresh_timer(self):
         if self.is_monitoring:
             self.refresh_apps_list()
-            # Check if monitoring process is still running
-            if self.monitoring_process and self.monitoring_process.poll() is not None:
-                self.stop_monitoring()
-            else:
-                self.root.after(5000, self.refresh_timer)  # Refresh every 5 seconds
+            self._check_monitor_health()
+            if self.is_monitoring:
+                interval_ms = max(
+                    1000, int(self.config.get("watchdog_check_interval", 5) * 1000)
+                )
+                self.root.after(interval_ms, self.refresh_timer)
 
     def on_window_close(self):
         """Handle window close event - minimize to tray if enabled"""
@@ -500,27 +537,104 @@ class AppBlockerGUI:
 
     def restore_monitoring_state(self):
         """Restore monitoring state from config on startup"""
-        print("Restoring monitoring state from config...")
+        if self.logger:
+            self.logger.info("Restoring monitoring state from config...")
         if self.config.get("enabled", False):
             # Only restore if there are apps to monitor
             if self.config.get("apps", {}):
-                print("Restoring monitoring state from previous session...")
+                if self.logger:
+                    self.logger.info("Previous session had monitoring enabled; restoring")
                 try:
                     self.start_monitoring()
-                    print("Monitoring restored successfully")
+                    if self.logger:
+                        self.logger.info("Monitoring restored successfully")
                 except Exception as e:
-                    print(f"Failed to restore monitoring: {e}")
+                    if self.logger:
+                        self.logger.error("Failed to restore monitoring: %s", e)
                     # If restore fails, update config to reflect actual state
                     self.config["enabled"] = False
                     self.save_config()
             else:
-                print("No apps configured for monitoring - disabling enabled state")
+                if self.logger:
+                    self.logger.info(
+                        "No apps configured while enabled=True; disabling flag"
+                    )
                 # If no apps configured, disable monitoring state
                 self.config["enabled"] = False
                 self.save_config()
 
+
         else:
             print("Monitoring was not enabled in previous session, skipping restore")
+
+    def _read_heartbeat(self):
+        try:
+            with open(self.heartbeat_path, "r") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return None
+        except Exception:
+            return None
+
+    def _compute_heartbeat_ttl(self):
+        interval = self.config.get("check_interval", 30)
+        return self.config.get("heartbeat_ttl_seconds", interval * 2 + 10)
+
+    def _is_heartbeat_fresh(self):
+        heartbeat = self._read_heartbeat()
+        if not heartbeat:
+            return False
+        ts_str = heartbeat.get("timestamp")
+        if not ts_str:
+            return False
+        try:
+            ts = datetime.fromisoformat(ts_str)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
+        except Exception:
+            return False
+        age = (datetime.now(UTC) - ts).total_seconds()
+        return age <= self._compute_heartbeat_ttl()
+
+    def _check_monitor_health(self):
+        watchdog_enabled = self.config.get("watchdog_enabled", True)
+
+        process_alive = self.monitoring_process and self.monitoring_process.poll() is None
+        heartbeat_fresh = self._is_heartbeat_fresh()
+
+        if not watchdog_enabled:
+            if self.monitoring_process and not process_alive:
+                self.stop_monitoring()
+            return
+
+        if process_alive and heartbeat_fresh:
+            return
+
+        reason_parts = []
+        if not process_alive:
+            reason_parts.append("process not running")
+        if not heartbeat_fresh:
+            reason_parts.append("stale heartbeat")
+        reason = ", ".join(reason_parts) or "unknown"
+
+        if self.logger:
+            self.logger.warning("Watchdog detected monitor issue: %s", reason)
+
+        if self.config.get("watchdog_restart", True):
+            try:
+                if self.logger:
+                    self.logger.info("Watchdog attempting to restart monitor")
+                self._terminate_monitoring_process()
+                self.is_monitoring = False
+                self.start_monitoring()
+                return
+            except Exception as e:
+                if self.logger:
+                    self.logger.error("Watchdog restart failed: %s", e)
+
+        # If restart disabled or failed, stop monitoring cleanly
+        self.stop_monitoring()
+
 
 
 class AppDialog:

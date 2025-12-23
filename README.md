@@ -13,6 +13,7 @@
 - 🚀 **Windows Autostart** - automatically start with Windows system boot
 - 📱 **System Tray Integration** - minimize to system tray for background operation
 - 💾 **State Persistence** - remembers monitoring state between sessions
+- 🛡️ **Watchdog & Heartbeat** - detects forced terminations of the monitor, logs incidents, and can automatically restart it
 
 ## 🚀 Requirements
 
@@ -122,6 +123,19 @@ Configuration is stored in `config.json`:
 - `enabled`: Whether monitoring is active (automatically managed)
 - `autostart`: Enable automatic startup with Windows
 - `minimize_to_tray`: Enable system tray functionality
+- `watchdog_enabled`: Włącza strażnika sprawdzającego, czy monitor żyje
+- `watchdog_restart`: Pozwala strażnikowi automatycznie restartować monitor
+- `watchdog_check_interval`: Co ile sekund GUI sprawdza stan monitora
+- `heartbeat_ttl_seconds`: Maksymalny wiek heartbeat zanim zostanie uznany za nieświeży
+- `event_log_enabled`: Włącza logowanie zdarzeń do Windows Event Log (gdy dostępne)
+
+### Logging and sabotage detection
+
+- Log file: `app_blocker.log` in the application directory (start/stop events, limit breaches, watchdog).
+- Heartbeat: `monitor_heartbeat.json` updated by the monitor process on each cycle.
+- The GUI watchdog checks the monitor process and heartbeat freshness every few seconds:
+   - if the process has died or the heartbeat is stale → an entry in the log (and Event Log if enabled), optional monitor restart.
+   - Crash/force stop → `ERROR` in the Event Log + file; attempts to circumvent → `WARNING/ERROR` in the Event Log + file.
 
 ## 🧪 Testing
 

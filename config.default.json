@@ -3,5 +3,10 @@
 	"check_interval": 30,
 	"enabled": false,
 	"autostart": false,
-	"minimize_to_tray": false
+	"minimize_to_tray": false,
+	"watchdog_enabled": true,
+	"watchdog_restart": true,
+	"watchdog_check_interval": 5,
+	"heartbeat_ttl_seconds": 70,
+	"event_log_enabled": true
 }
