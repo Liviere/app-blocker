@@ -11,4 +11,6 @@ Test modules:
 - test_utils.py: Utilities for creating isolated test environments
 """
 
-__version__ = "1.0.0"
+from versioning import VERSION
+
+__version__ = VERSION

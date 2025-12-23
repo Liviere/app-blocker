@@ -3,19 +3,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+from versioning import VERSION
+
 
 def create_inno_setup_script():
     print("Creating Inno Setup script...")
     
-    version = "1.0.0"
-    try:
-        with open("pyproject.toml", "r") as f:
-            for line in f:
-                if line.startswith("version ="):
-                    version = line.split('"')[1]
-                    break
-    except FileNotFoundError:
-        pass
+    version = VERSION
     
     inno_script = f"""[Setup]
 AppId={{{{B7B5E4F2-1A2B-4C3D-8E9F-1234567890AB}}}}

@@ -191,6 +191,11 @@ poetry run flake8 .
 # Run tests
 poetry run pytest
 ```
+### Versioning
+
+- The current application version is stored exclusively in `pyproject.toml`.
+- The `versioning.py` module exposes a `get_version()` function and a `VERSION` constant used by tests and scripts (e.g., the installer).
+- When updating the version, edit only `pyproject.toml`; the rest of the tools will read it automatically.
 
 ## 📦 Building Distribution
 
