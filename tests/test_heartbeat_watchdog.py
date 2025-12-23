@@ -90,6 +90,8 @@ class TestWatchdogLogic(unittest.TestCase):
         stub.monitoring_process = DummyProcess(alive=True)
         stub.heartbeat_path = self.tmp / "hb.json"
         stub.is_monitoring = True
+        stub._watchdog_restart_running = False
+        stub._watchdog_grace_deadline = None
         with open(stub.heartbeat_path, "w") as f:
             json.dump({"timestamp": heartbeat_ts.isoformat()}, f)
 
@@ -121,6 +123,17 @@ class TestWatchdogLogic(unittest.TestCase):
         self.assertFalse(self.terminated)
         self.assertFalse(self.restarted)
         self.assertTrue(self.stopped)
+
+    def test_watchdog_grace_period_skip_restart(self):
+        old_ts = datetime.now(UTC) - timedelta(seconds=120)
+        gui = self._make_gui_stub(old_ts)
+        gui._watchdog_grace_deadline = datetime.now(UTC) + timedelta(seconds=30)
+
+        gui._check_monitor_health()
+
+        self.assertFalse(self.restarted)
+        self.assertFalse(self.terminated)
+        self.assertFalse(self.stopped)
 
     def test_is_heartbeat_fresh(self):
         gui = object.__new__(AppBlockerGUI)

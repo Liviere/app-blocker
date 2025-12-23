@@ -3,7 +3,7 @@ from tkinter import ttk, messagebox
 import json
 import subprocess
 import sys
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta
 from pathlib import Path
 from autostart import AutostartManager
 from system_tray import SystemTrayManager, is_tray_supported
@@ -38,6 +38,8 @@ class AppBlockerGUI:
 
         self.monitoring_process = None
         self.is_monitoring = False
+        self._watchdog_restart_running = False
+        self._watchdog_grace_deadline = None
 
         self.load_config()
         self.logger = get_logger(
@@ -447,6 +449,11 @@ class AppBlockerGUI:
             self.save_config()
             self.update_status()
 
+            grace_seconds = self._compute_heartbeat_ttl()
+            self._watchdog_grace_deadline = datetime.now(UTC) + timedelta(
+                seconds=grace_seconds
+            )
+
             if self.logger:
                 self.logger.info("Monitor process started")
 
@@ -468,6 +475,7 @@ class AppBlockerGUI:
         self.config["enabled"] = False
         self.save_config()
         self.update_status()
+        self._watchdog_grace_deadline = None
 
         if self.logger:
             self.logger.info("Monitor process stopped")
@@ -580,6 +588,11 @@ class AppBlockerGUI:
         interval = self.config.get("check_interval", 30)
         return self.config.get("heartbeat_ttl_seconds", interval * 2 + 10)
 
+    def _within_watchdog_grace(self):
+        if not self._watchdog_grace_deadline:
+            return False
+        return datetime.now(UTC) <= self._watchdog_grace_deadline
+
     def _is_heartbeat_fresh(self):
         heartbeat = self._read_heartbeat()
         if not heartbeat:
@@ -601,6 +614,10 @@ class AppBlockerGUI:
 
         process_alive = self.monitoring_process and self.monitoring_process.poll() is None
         heartbeat_fresh = self._is_heartbeat_fresh()
+        if heartbeat_fresh and self._watchdog_grace_deadline:
+            self._watchdog_grace_deadline = None
+        elif not heartbeat_fresh and self._within_watchdog_grace():
+            heartbeat_fresh = True
 
         if not watchdog_enabled:
             if self.monitoring_process and not process_alive:
@@ -621,9 +638,12 @@ class AppBlockerGUI:
             self.logger.warning("Watchdog detected monitor issue: %s", reason)
 
         if self.config.get("watchdog_restart", True):
+            if self._watchdog_restart_running:
+                return
             try:
                 if self.logger:
                     self.logger.info("Watchdog attempting to restart monitor")
+                self._watchdog_restart_running = True
                 self._terminate_monitoring_process()
                 self.is_monitoring = False
                 self.start_monitoring()
@@ -631,6 +651,8 @@ class AppBlockerGUI:
             except Exception as e:
                 if self.logger:
                     self.logger.error("Watchdog restart failed: %s", e)
+            finally:
+                self._watchdog_restart_running = False
 
         # If restart disabled or failed, stop monitoring cleanly
         self.stop_monitoring()
