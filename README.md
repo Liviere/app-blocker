@@ -14,6 +14,7 @@
 - 📱 **System Tray Integration** - minimize to system tray for background operation
 - 💾 **State Persistence** - remembers monitoring state between sessions
 - 🛡️ **Watchdog & Heartbeat** - detects forced terminations of the monitor, logs incidents, and can automatically restart it
+- 📝 **Log Viewer** - built-in window for browsing and filtering `app_blocker.log`
 
 ## 🚀 Requirements
 
@@ -105,6 +106,12 @@ python main.py # For monitoring
 - App automatically remembers if monitoring was active when closed
 - On next startup, monitoring will resume automatically if it was previously enabled
 - Only works if applications are configured for monitoring
+
+#### Log Viewer
+
+- Click **"View Logs"** in the Status section to open a window with entries from `app_blocker.log`.
+- Filter by severity (All/Debug/Info/Warning/Error/Critical) and search across logger names or messages.
+- Use **Refresh** to reload the file and **Clear** to reset filters.
 
 The application will:
 

@@ -51,6 +51,25 @@ class _EventLogHandler(logging.Handler):
             pass
 
 
+def parse_log_line(line: str) -> dict | None:
+    """Parse a single log line produced by get_logger handlers."""
+    if not line:
+        return None
+
+    parts = line.strip().split(" | ", 3)
+    if len(parts) != 4:
+        return None
+
+    timestamp, level, name, message = parts
+    return {
+        "timestamp": timestamp,
+        "level": level,
+        "name": name,
+        "message": message,
+        "raw": line.strip(),
+    }
+
+
 def get_logger(
     name: str = "app_blocker",
     app_dir: Path | None = None,
