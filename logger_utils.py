@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import traceback
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -51,6 +52,48 @@ class _EventLogHandler(logging.Handler):
             pass
 
 
+class _ErrorFormatter(logging.Formatter):
+    """Ensure every error-level record includes traceback or stack trace."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        base = super().format(record)
+        parts = [base]
+
+        if record.exc_info:
+            try:
+                parts.append(self.formatException(record.exc_info))
+            except Exception:
+                # Formatting errors must not break logging
+                pass
+        elif record.stack_info:
+            try:
+                parts.append(self.formatStack(record.stack_info))
+            except Exception:
+                pass
+
+        return "\n".join(part for part in parts if part)
+
+
+class _ErrorFileHandler(RotatingFileHandler):
+    """Dedicated handler for errors that always persists tracebacks."""
+
+    def emit(self, record: logging.LogRecord):
+        if record.levelno < logging.ERROR:
+            return
+
+        error_record = logging.makeLogRecord(record.__dict__.copy())
+
+        if error_record.exc_info in (None, (None, None, None)):
+            current_exc = sys.exc_info()
+            if current_exc != (None, None, None):
+                error_record.exc_info = current_exc
+
+        if error_record.exc_info in (None, (None, None, None)):
+            error_record.stack_info = "".join(traceback.format_stack())
+
+        super().emit(error_record)
+
+
 def parse_log_line(line: str) -> dict | None:
     """Parse a single log line produced by get_logger handlers."""
     if not line:
@@ -83,7 +126,9 @@ def get_logger(
 
     app_dir = app_dir or _get_app_directory()
     app_dir.mkdir(exist_ok=True)
+
     log_file = app_dir / "app_blocker.log"
+    error_log_file = app_dir / "app_blocker_errors.log"
 
     file_handler = RotatingFileHandler(
         log_file, maxBytes=512 * 1024, backupCount=3, encoding="utf-8"
@@ -92,6 +137,15 @@ def get_logger(
         logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
     )
     logger.addHandler(file_handler)
+
+    error_handler = _ErrorFileHandler(
+        error_log_file, maxBytes=512 * 1024, backupCount=3, encoding="utf-8"
+    )
+    error_handler.setLevel(logging.ERROR)
+    error_handler.setFormatter(
+        _ErrorFormatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+    )
+    logger.addHandler(error_handler)
 
     if event_log_enabled and os.name == "nt":
         event_handler = _EventLogHandler("AppBlocker")
