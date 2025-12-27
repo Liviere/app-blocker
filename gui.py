@@ -1,10 +1,14 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import json
+import os
 import subprocess
 import sys
+import time
 from datetime import datetime, UTC, timedelta
 from pathlib import Path
+
+import psutil
 from autostart import AutostartManager
 from system_tray import SystemTrayManager, is_tray_supported
 from single_instance import ensure_single_instance
@@ -26,6 +30,7 @@ class AppBlockerGUI:
         self.log_path = self.app_dir / "usage_log.json"
         self.app_log_path = self.app_dir / "app_blocker.log"
         self.heartbeat_path = self.app_dir / "monitor_heartbeat.json"
+        self.session_state_path = self.app_dir / "gui_session.json"
 
         # Initialize autostart manager
         self.autostart_manager = AutostartManager()
@@ -42,6 +47,12 @@ class AppBlockerGUI:
         self._watchdog_restart_running = False
         self._watchdog_grace_deadline = None
         self.log_viewer_window = None
+        self._shutdown_in_progress = False
+        self._shutdown_cleanup_scheduled = False
+        self._old_wndproc = None
+        self._wndproc_ref = None
+        self._console_ctrl_handler = None
+        self._current_session_state = None
 
         self.load_config()
         self.logger = get_logger(
@@ -49,6 +60,9 @@ class AppBlockerGUI:
             self.app_dir,
             self.config.get("event_log_enabled", False),
         )
+        self._check_previous_session_state()
+        self._mark_session_start()
+        self._log_boot_proximity("GUI startup")
         self.create_widgets()
         self.update_status()
 
@@ -57,6 +71,8 @@ class AppBlockerGUI:
 
         # Restore monitoring state if it was enabled
         self.restore_monitoring_state()
+        if sys.platform == "win32":
+            self._install_console_shutdown_handler()
 
     def get_app_directory(self):
         """Get application directory - works with both development and PyInstaller"""
@@ -146,6 +162,10 @@ class AppBlockerGUI:
 
         if "event_log_enabled" not in self.config:
             self.config["event_log_enabled"] = True
+            self.save_config()
+
+        if "boot_start_window_seconds" not in self.config:
+            self.config["boot_start_window_seconds"] = 300
             self.save_config()
 
     def save_config(self):
@@ -433,6 +453,194 @@ class AppBlockerGUI:
     def _log_viewer_closed(self):
         self.log_viewer_window = None
 
+    def _check_previous_session_state(self):
+        try:
+            with open(self.session_state_path, "r", encoding="utf-8") as f:
+                state = json.load(f)
+        except FileNotFoundError:
+            return
+        except json.JSONDecodeError:
+            if self.logger:
+                self.logger.warning("GUI session state file was corrupted; ignoring")
+            return
+
+        if not state.get("clean_exit", True):
+            recovered = self._classify_shutdown_via_eventlog(state)
+            if not recovered and self.logger:
+                self.logger.warning(
+                    "Previous GUI session ended unexpectedly (pid=%s, started=%s, reason=%s)",
+                    state.get("pid"),
+                    state.get("started_at"),
+                    state.get("reason", "unknown"),
+                )
+
+    def _mark_session_start(self):
+        self._current_session_state = {
+            "pid": os.getpid(),
+            "started_at": datetime.now(UTC).isoformat(),
+            "clean_exit": False,
+        }
+        self._write_session_state(self._current_session_state)
+
+    def _mark_session_end(self, reason):
+        if not self._current_session_state:
+            return
+        self._current_session_state.update(
+            {
+                "clean_exit": True,
+                "ended_at": datetime.now(UTC).isoformat(),
+                "reason": reason,
+            }
+        )
+        self._write_session_state(self._current_session_state)
+
+    def _write_session_state(self, state):
+        try:
+            with open(self.session_state_path, "w", encoding="utf-8") as f:
+                json.dump(state, f, indent=2)
+        except Exception:
+            if self.logger:
+                self.logger.error("Failed to write GUI session state")
+
+    def _log_boot_proximity(self, context):
+        threshold = self.config.get("boot_start_window_seconds", 0)
+        if threshold <= 0:
+            return
+        try:
+            uptime = time.time() - psutil.boot_time()
+        except Exception:
+            return
+        if uptime <= threshold and self.logger:
+            self.logger.warning(
+                "%s occurred %.0fs after system boot (threshold=%ss)",
+                context,
+                uptime,
+                threshold,
+            )
+
+    def _classify_shutdown_via_eventlog(self, state):
+        """Try to reclassify an unclean session as system shutdown using Windows event log."""
+        if sys.platform != "win32":
+            return False
+        try:
+            import win32evtlog
+        except Exception:
+            return False
+
+        started_at = state.get("started_at")
+        if not started_at:
+            return False
+        try:
+            started_dt = datetime.fromisoformat(started_at)
+        except Exception:
+            return False
+
+        window_seconds = 3600  # look back up to 1h from session start
+        shutdown_event_ids = {6005, 6006, 6008}  # system startup, clean shutdown, unexpected, planned
+
+        handle = None
+        try:
+            handle = win32evtlog.OpenEventLog(None, "System")
+            flags = win32evtlog.EVENTLOG_BACKWARDS_READ | win32evtlog.EVENTLOG_SEQUENTIAL_READ
+            matched_ts = None
+
+            while True:
+                records = win32evtlog.ReadEventLog(handle, flags, 0)
+                if not records:
+                    break
+                for event in records:
+                    event_id = event.EventID & 0xFFFF
+                    if event_id not in shutdown_event_ids:
+                        continue
+                    ts = event.TimeGenerated
+                    try:
+                        ts = datetime.fromtimestamp(ts.timestamp(), tz=UTC)
+                    except Exception:
+                        continue
+                    # Consider shutdown valid if it happened after session start and within window
+                    if ts >= started_dt.astimezone(UTC) and (ts - started_dt.astimezone(UTC)).total_seconds() <= window_seconds:
+                        matched_ts = ts
+                        break
+                if matched_ts:
+                    break
+
+            if matched_ts:
+                state.update(
+                    {
+                        "clean_exit": True,
+                        "ended_at": matched_ts.isoformat(),
+                        "reason": "system-shutdown-eventlog",
+                    }
+                )
+                self._write_session_state(state)
+                if self.logger:
+                    self.logger.info(
+                        "Reclassified previous session as system shutdown via EventLog (ts=%s)",
+                        matched_ts.isoformat(),
+                    )
+                return True
+        finally:
+            if handle:
+                try:
+                    win32evtlog.CloseEventLog(handle)
+                except Exception:
+                    pass
+        return False
+
+    def _handle_system_shutdown_signal(self, source):
+        """Handle Windows shutdown notifications (WM/CTRL/SERVICE signals)."""
+        if self._shutdown_cleanup_scheduled:
+            return
+        self._shutdown_cleanup_scheduled = True
+        self._shutdown_in_progress = True
+        if self.logger:
+            self.logger.info(
+                "Windows shutdown control signal received (%s / SERVICE_CONTROL_SHUTDOWN)",
+                source,
+            )
+        # Mark session end immediately in case the process gets terminated forcefully
+        self._mark_session_end("system-shutdown")
+
+        def _shutdown_callback():
+            try:
+                self.on_window_close_quit(reason="system-shutdown")
+            except Exception:
+                # If the UI is already torn down, ignore failures
+                pass
+
+        try:
+            self.root.after(0, _shutdown_callback)
+        except tk.TclError:
+            _shutdown_callback()
+
+    def _install_console_shutdown_handler(self):
+        """Map console CTRL events to SERVICE_CONTROL_SHUTDOWN semantics."""
+        if sys.platform != "win32":
+            return
+        try:
+            import ctypes
+        except Exception:
+            return
+
+        kernel32 = ctypes.windll.kernel32
+        HANDLER_ROUTINE = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_uint)
+
+        @HANDLER_ROUTINE
+        def console_handler(ctrl_type):
+            # CTRL_LOGOFF_EVENT (5) and CTRL_SHUTDOWN_EVENT (6) mirror SERVICE_CONTROL_SHUTDOWN
+            if ctrl_type in (2, 5, 6):  # close/logoff/shutdown
+                self._handle_system_shutdown_signal(f"CTRL_EVENT_{ctrl_type}")
+                return True
+            return False
+
+        try:
+            if kernel32.SetConsoleCtrlHandler(console_handler, True):
+                self._console_ctrl_handler = console_handler
+        except Exception:
+            if self.logger:
+                self.logger.warning("Failed to install console shutdown handler")
+
+
     def start_monitoring(self):
         if not self.config["apps"]:
             messagebox.showwarning(
@@ -441,6 +649,7 @@ class AppBlockerGUI:
             return
 
         try:
+            self._log_boot_proximity("Monitor start requested")
             # Get the correct executable path
             main_cmd = self.get_main_executable()
             print(f"Starting monitoring with command: {main_cmd}")
@@ -521,6 +730,14 @@ class AppBlockerGUI:
     def refresh_timer(self):
         if self.is_monitoring:
             self.refresh_apps_list()
+            if self.monitoring_process and self.monitoring_process.poll() is not None:
+                exit_code = self.monitoring_process.poll()
+                if self.logger:
+                    self.logger.error(
+                        "Monitor process exited unexpectedly (code=%s)", exit_code
+                    )
+                self.stop_monitoring()
+                return
             self._check_monitor_health()
             if self.is_monitoring:
                 interval_ms = max(
@@ -541,9 +758,16 @@ class AppBlockerGUI:
             # Normal quit behavior
             self.on_window_close_quit()
 
-    def on_window_close_quit(self):
+    def on_window_close_quit(self, reason=None):
         """Handle window close event - quit application"""
         # Only terminate the process, preserve the enabled state for next startup
+        if self._shutdown_in_progress:
+            final_reason = "system-shutdown"
+        else:
+            final_reason = reason or "user-quit"
+        if self.logger:
+            self.logger.info("GUI exiting (%s)", final_reason)
+        self._mark_session_end(final_reason)
         self._terminate_monitoring_process()
         if self.tray_manager:
             self.tray_manager.stop_tray()
@@ -654,7 +878,7 @@ class AppBlockerGUI:
         reason = ", ".join(reason_parts) or "unknown"
 
         if self.logger:
-            self.logger.warning("Watchdog detected monitor issue: %s", reason)
+                self.logger.error("Watchdog detected monitor issue: %s", reason)
 
         if self.config.get("watchdog_restart", True):
             if self._watchdog_restart_running:

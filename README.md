@@ -130,19 +130,23 @@ Configuration is stored in `config.json`:
 - `enabled`: Whether monitoring is active (automatically managed)
 - `autostart`: Enable automatic startup with Windows
 - `minimize_to_tray`: Enable system tray functionality
-- `watchdog_enabled`: Włącza strażnika sprawdzającego, czy monitor żyje
-- `watchdog_restart`: Pozwala strażnikowi automatycznie restartować monitor
-- `watchdog_check_interval`: Co ile sekund GUI sprawdza stan monitora
-- `heartbeat_ttl_seconds`: Maksymalny wiek heartbeat zanim zostanie uznany za nieświeży
-- `event_log_enabled`: Włącza logowanie zdarzeń do Windows Event Log (gdy dostępne)
+- `watchdog_enabled`: Enables a watchdog that checks whether the monitor process is alive
+- `watchdog_restart`: Allows the watchdog to automatically restart the monitor
+- `watchdog_check_interval`: How often (in seconds) the GUI checks the monitor status
+- `heartbeat_ttl_seconds`: Maximum age (in seconds) of the heartbeat before it is considered stale
+- `event_log_enabled`: Enables logging events to the Windows Event Log (when available)
+- `boot_start_window_seconds`: Threshold (seconds) within which a start soon after boot is logged as a security event
 
 ### Logging and sabotage detection
 
 - Log file: `app_blocker.log` in the application directory (start/stop events, limit breaches, watchdog).
 - Heartbeat: `monitor_heartbeat.json` updated by the monitor process on each cycle.
+- GUI session state: `gui_session.json` recorded at startup/shutdown; allows detecting unclean exits (crash/kill) or shutdown-time closures.
+- Boot proximity logs: GUI and monitor report starts within the configured window after system boot (`boot_start_window_seconds`).
 - The GUI watchdog checks the monitor process and heartbeat freshness every few seconds:
    - if the process has died or the heartbeat is stale → an entry in the log (and Event Log if enabled), optional monitor restart.
-   - Crash/force stop → `ERROR` in the Event Log + file; attempts to circumvent → `WARNING/ERROR` in the Event Log + file.
+   - Crash/force stop → `ERROR` in the Event Log and log file; attempts to circumvent → `WARNING`/`ERROR` in the Event Log and log file.
+- GUI closure reasons (quit button, system shutdown) are logged along with PID and timestamp.
 
 ## 🧪 Testing
 

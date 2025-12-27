@@ -125,6 +125,7 @@ dmypy.json
 config.json
 usage_log.json
 monitor_heartbeat.json
+gui_session.json
 *.log
 
 # IDE files

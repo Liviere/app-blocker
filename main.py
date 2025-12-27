@@ -26,6 +26,21 @@ CONFIG_PATH = APP_DIR / "config.json"
 LOG_PATH = APP_DIR / "usage_log.json"
 HEARTBEAT_PATH = APP_DIR / "monitor_heartbeat.json"
 
+def _log_boot_proximity(logger, component, threshold):
+    if threshold <= 0:
+        return
+    try:
+        uptime = time.time() - psutil.boot_time()
+    except Exception:
+        return
+    if uptime <= threshold:
+        logger.warning(
+            "%s started %.0fs after system boot (threshold=%ss)",
+            component,
+            uptime,
+            threshold,
+        )
+
 
 def _update_heartbeat(status="running", pid=None):
     try:
@@ -98,6 +113,11 @@ def monitor():
 
     event_log_enabled = config.get("event_log_enabled", False)
     logger = get_logger("app_blocker.monitor", APP_DIR, event_log_enabled)
+    _log_boot_proximity(
+        logger,
+        "Monitor process",
+        config.get("boot_start_window_seconds", 0),
+    )
 
     logger.info("Monitor start")
     _update_heartbeat("running")

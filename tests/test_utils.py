@@ -28,7 +28,14 @@ class ConfigManager:
 
         # Default test config
         if config_data is None:
-            config_data = {"apps": {}, "check_interval": 30, "enabled": False, "autostart": False, "minimize_to_tray": False}
+            config_data = {
+                "apps": {},
+                "check_interval": 30,
+                "enabled": False,
+                "autostart": False,
+                "minimize_to_tray": False,
+                "boot_start_window_seconds": 300,
+            }
 
         # Default test log
         if log_data is None:
@@ -104,7 +111,12 @@ def create_test_config(apps=None, check_interval=30, enabled=False):
     if apps is None:
         apps = {}
 
-    return {"apps": apps, "check_interval": check_interval, "enabled": enabled}
+    return {
+        "apps": apps,
+        "check_interval": check_interval,
+        "enabled": enabled,
+        "boot_start_window_seconds": 300,
+    }
 
 
 def create_test_log(entries=None):

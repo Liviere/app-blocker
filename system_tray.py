@@ -75,10 +75,15 @@ class SystemTrayManager:
     
     def quit_application(self, icon=None, item=None):
         """Quit the application completely"""
-        self.stop_tray()
-        self.gui_app.stop_monitoring()
-        self.gui_app.root.quit()
-        self.gui_app.root.destroy()
+        quit_handler = getattr(self.gui_app, "on_window_close_quit", None)
+        if callable(quit_handler):
+            quit_handler(reason="tray-quit")
+        else:
+            # Fallback to legacy behavior if handler missing
+            self.stop_tray()
+            self.gui_app.stop_monitoring()
+            self.gui_app.root.quit()
+            self.gui_app.root.destroy()
     
     def get_menu_items(self):
         """Create context menu items"""
