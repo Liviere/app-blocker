@@ -135,6 +135,80 @@ class TestAppBlockerGUI(unittest.TestCase):
             self.assertEqual(config["time_limits"], {"overall": 0, "dedicated": {}})
 
 
+class TestKillApp(unittest.TestCase):
+    """Test kill_app function with special characters in app names"""
+
+    @patch('sys.platform', 'win32')
+    @patch('os.system')
+    def test_kill_app_with_ampersand(self, mock_system):
+        """Test that app names with & are properly escaped"""
+        app_name = "Rock & Roll.exe"
+        main.kill_app(app_name)
+        
+        # Verify taskkill was called with properly escaped name
+        mock_system.assert_called_once_with('taskkill /f /im "Rock & Roll.exe"')
+    
+    @patch('sys.platform', 'win32')
+    @patch('os.system')
+    def test_kill_app_with_spaces(self, mock_system):
+        """Test that app names with spaces are properly escaped"""
+        app_name = "My App.exe"
+        main.kill_app(app_name)
+        
+        mock_system.assert_called_once_with('taskkill /f /im "My App.exe"')
+    
+    @patch('sys.platform', 'win32')
+    @patch('os.system')
+    def test_kill_app_with_quotes(self, mock_system):
+        """Test that app names with quotes are properly escaped"""
+        app_name = 'App"Name.exe'
+        main.kill_app(app_name)
+        
+        # Double quotes should be escaped as ""
+        mock_system.assert_called_once_with('taskkill /f /im "App""Name.exe"')
+    
+    @patch('sys.platform', 'win32')
+    @patch('os.system')
+    def test_kill_app_with_multiple_special_chars(self, mock_system):
+        """Test that app names with multiple special characters are properly escaped"""
+        app_name = "App & Name (2024).exe"
+        main.kill_app(app_name)
+        
+        mock_system.assert_called_once_with('taskkill /f /im "App & Name (2024).exe"')
+    
+    @patch('sys.platform', 'win32')
+    @patch('os.system')
+    def test_kill_app_simple_name(self, mock_system):
+        """Test that simple app names still work correctly"""
+        app_name = "notepad.exe"
+        main.kill_app(app_name)
+        
+        mock_system.assert_called_once_with('taskkill /f /im "notepad.exe"')
+    
+    @patch('sys.platform', 'win32')
+    @patch('os.system')
+    def test_kill_app_with_logger(self, mock_system):
+        """Test that kill_app logs properly when logger is provided"""
+        mock_logger = Mock()
+        app_name = "Test & App.exe"
+        
+        main.kill_app(app_name, logger=mock_logger)
+        
+        mock_system.assert_called_once_with('taskkill /f /im "Test & App.exe"')
+        mock_logger.warning.assert_called_once_with(
+            "Closed application due to limit: %s", app_name
+        )
+    
+    @patch('sys.platform', 'linux')
+    @patch('os.system')
+    def test_kill_app_non_windows(self, mock_system):
+        """Test that non-Windows platforms use pkill"""
+        app_name = "test_app"
+        main.kill_app(app_name)
+        
+        mock_system.assert_called_once_with(f"pkill -f {app_name}")
+
+
 class TestConfigIsolation(unittest.TestCase):
     """Test that tests don't interfere with real config files"""
 

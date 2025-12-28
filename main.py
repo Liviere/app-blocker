@@ -199,7 +199,9 @@ def load_usage_log():
 def kill_app(app_name, logger=None):
     """Kill application by name"""
     if sys.platform == "win32":
-        os.system(f"taskkill /f /im {app_name}")
+        # Escape app name for PowerShell by wrapping in double quotes
+        escaped_name = app_name.replace('"', '""')
+        os.system(f'taskkill /f /im "{escaped_name}"')
     else:
         # For other platforms, you might need different commands
         os.system(f"pkill -f {app_name}")
