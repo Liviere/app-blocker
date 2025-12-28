@@ -19,6 +19,7 @@ from security_manager import (
     get_min_password_length,
 )
 from state_manager import StateEvent, create_state_manager
+from notification_manager import validate_warning_thresholds
 
 
 # === Password setup dialog ===
@@ -1185,6 +1186,16 @@ class AppBlockerGUI:
         if self.config["time_limit_update_delay_hours"] != delay_hours:
             self.config["time_limit_update_delay_hours"] = delay_hours
             changed = True
+
+        # ===  Notification settings defaults ===
+        # Ensure notification configuration exists with sensible defaults.
+        if "notifications_enabled" not in self.config:
+            self.config["notifications_enabled"] = True
+            changed = True
+        
+        if "notification_warning_minutes" not in self.config:
+            self.config["notification_warning_minutes"] = "5,3,1"
+            changed = True
         
         if changed:
             self.save_config()
@@ -1440,6 +1451,31 @@ class AppBlockerGUI:
 
         next_row = self._create_time_limit_delay_field(settings_frame, next_row)
 
+        # === Notification settings UI ===
+        # UI controls for configuring warning notifications before app closure.
+        
+        self.notifications_enabled_var = tk.BooleanVar(
+            value=self.config.get("notifications_enabled", True)
+        )
+        ttk.Checkbutton(
+            settings_frame,
+            text="Enable shutdown warnings",
+            variable=self.notifications_enabled_var,
+        ).grid(row=next_row, column=0, columnspan=2, sticky=tk.W, pady=(5, 0))
+        next_row += 1
+        
+        ttk.Label(settings_frame, text="Warning times (min, comma-sep):").grid(
+            row=next_row, column=0, sticky=tk.W, pady=(5, 0)
+        )
+        self.notification_warnings_var = tk.StringVar(
+            value=self.config.get("notification_warning_minutes", "5,3,1")
+        )
+        notification_entry = ttk.Entry(
+            settings_frame, textvariable=self.notification_warnings_var, width=10
+        )
+        notification_entry.grid(row=next_row, column=1, padx=(10, 0), pady=(5, 0))
+        next_row += 1
+
         ttk.Button(
             settings_frame, text="Save Settings", command=self.save_settings
         ).grid(row=0, column=2, rowspan=next_row, padx=(10, 0), pady=(0, 0), sticky=tk.N)
@@ -1671,8 +1707,20 @@ class AppBlockerGUI:
             if overall_minutes < 0:
                 raise ValueError("Overall limit cannot be negative")
 
+            # === Validate notification settings ===
+            # Ensure warning thresholds are valid before saving.
+            notification_warnings = self.notification_warnings_var.get()
+            is_valid, error_msg = validate_warning_thresholds(notification_warnings)
+            if not is_valid:
+                raise ValueError(f"Invalid warning times: {error_msg}")
+
             self.config["check_interval"] = interval
             self.config["time_limit_update_delay_hours"] = delay_hours
+            
+            # Save notification settings
+            self.config["notifications_enabled"] = self.notifications_enabled_var.get()
+            self.config["notification_warning_minutes"] = notification_warnings
+            
             current_overall_minutes = self._get_overall_minutes()
 
             if overall_minutes != current_overall_minutes:

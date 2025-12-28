@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "app-blocker"
-version = "1.2.2"
+version = "1.2.3"
 description = "Application for monitoring and limiting time spent on specific programs"
 authors = ["Your Name <your.email@example.com>"]
 readme = "README.md"
@@ -13,6 +13,8 @@ pystray = "^0.19.5"
 pillow = "^11.3.0"
 pywin32 = "^311"
 cryptography = ">=42.0.0"
+win10toast = "^0.9"
+pygame = "^2.6.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0.0"

@@ -18,6 +18,7 @@
 - 🔐 **Master Password** - secure your configuration with a master password
 - 🛡️ **Protected Mode** - lock monitoring settings for a specified period to prevent circumvention
 - 🕐 **Blocked Hours** - define time ranges when apps are always blocked, regardless of time limits
+- 🔔 **Shutdown Warnings** - get notified with sound and system notifications before apps are closed
 
 ## 🚀 Requirements
 
@@ -197,6 +198,20 @@ Configuration is stored in `config.json`:
 - `heartbeat_ttl_seconds`: Maximum age (in seconds) of the heartbeat before it is considered stale
 - `event_log_enabled`: Enables logging events to the Windows Event Log (when available)
 - `boot_start_window_seconds`: Threshold (seconds) within which a start soon after boot is logged as a security event
+- `notifications_enabled`: Enable/disable shutdown warning notifications (default: `true`)
+- `notification_warning_minutes`: Comma-separated list of minutes before closure to show warnings (e.g., `"5,3,1"`); the 1-minute warning plays a special final alarm sound
+
+### Shutdown Warnings
+
+When enabled, App Blocker will notify you before closing applications:
+- **System notifications** (toast) appear at each configured threshold
+- **Sound alerts** play with each notification (non-blocking)
+- **Final warning** at 1 minute uses a distinct alarm sound
+- Warnings work for all closure scenarios: dedicated app limits, overall limit, and blocked hours
+
+Sound files are located in the `assets/` folder:
+- `alarm.mp3` - regular warning sound
+- `final_alarm.mp3` - final warning sound (1 minute before closure)
 
 ### Logging and sabotage detection
 

@@ -7,6 +7,10 @@ from datetime import datetime, UTC
 from pathlib import Path
 from logger_utils import get_logger
 from single_instance import ensure_single_instance
+from notification_manager import (
+    NotificationManager,
+    parse_warning_thresholds,
+)
 
 
 # === Blocked hours time range checking ===
@@ -81,6 +85,65 @@ def is_within_blocked_hours(now: datetime, blocked_hours: list) -> bool:
             continue
     
     return False
+
+
+# === Blocked hours approaching calculation ===
+# Calculate minutes until the next blocked hours period starts.
+
+
+def get_minutes_until_blocked_hours(now: datetime, blocked_hours: list) -> tuple[int, str]:
+    """
+    Calculate minutes until the nearest blocked hours period starts.
+    
+    WHY: Needed to trigger warning notifications before blocked hours begin.
+    Returns (minutes_until_block, start_time_str) or (-1, "") if no upcoming block.
+    Returns -1 if currently within blocked hours (already blocking).
+    """
+    if not blocked_hours:
+        return -1, ""
+    
+    current_minutes = time_to_minutes(now.hour, now.minute)
+    min_distance = float('inf')
+    nearest_start_str = ""
+    
+    for time_range in blocked_hours:
+        start_str = time_range.get("start", "")
+        end_str = time_range.get("end", "")
+        
+        if not start_str or not end_str:
+            continue
+        
+        try:
+            start_h, start_m = parse_time_str(start_str)
+            start_minutes = time_to_minutes(start_h, start_m)
+            
+            # Check if we're currently in this blocked period
+            end_h, end_m = parse_time_str(end_str)
+            end_minutes = time_to_minutes(end_h, end_m)
+            
+            if is_time_in_range(current_minutes, start_minutes, end_minutes):
+                # Already in blocked hours - no warning needed
+                return -1, ""
+            
+            # Calculate distance to start of this blocked period
+            if current_minutes < start_minutes:
+                # Same day: start is ahead
+                distance = start_minutes - current_minutes
+            else:
+                # Next day: wrap around midnight (1440 = minutes in day)
+                distance = (1440 - current_minutes) + start_minutes
+            
+            if distance < min_distance:
+                min_distance = distance
+                nearest_start_str = start_str
+                
+        except (ValueError, IndexError):
+            continue
+    
+    if min_distance == float('inf'):
+        return -1, ""
+    
+    return int(min_distance), nearest_start_str
 
 
 def get_app_directory():
@@ -316,6 +379,10 @@ def monitor():
     logger.info("Monitor start")
     _update_heartbeat("running")
 
+    # === Initialize notification manager ===
+    # Set up notification system for warning users before app closure.
+    notification_manager = NotificationManager(APP_DIR)
+
     # Check if monitoring is enabled
     if not config.get("enabled", False):
         logger.info("Monitoring disabled in config; exiting")
@@ -354,6 +421,13 @@ def monitor():
             overall_limit = limits.get("overall", 0) if isinstance(limits, dict) else 0
             interval = config.get("check_interval", 30)
 
+            # === Load notification settings ===
+            # Parse notification configuration for warning thresholds.
+            notifications_enabled = config.get("notifications_enabled", True)
+            warning_thresholds = parse_warning_thresholds(
+                config.get("notification_warning_minutes", "5,3,1")
+            )
+
             # Check if monitoring is still enabled
             if not config.get("enabled", False):
                 logger.info("Monitoring disabled via configuration; stopping")
@@ -377,10 +451,27 @@ def monitor():
 
             running = {p.name(): p.pid for p in psutil.process_iter(["pid", "name"])}
 
+            # === Blocked hours approaching notification ===
+            # Warn user before blocked hours period begins.
+            blocked_hours = config.get("blocked_hours", [])
+            
+            if notifications_enabled and blocked_hours:
+                minutes_until_block, block_start_time = get_minutes_until_blocked_hours(
+                    now, blocked_hours
+                )
+                if minutes_until_block > 0:
+                    # Check if any monitored app is running - only notify if so
+                    any_app_running = any(app in running for app in apps)
+                    if any_app_running:
+                        notification_manager.notify_blocked_hours_approaching(
+                            minutes_until_block,
+                            block_start_time,
+                            warning_thresholds
+                        )
+
             # === Blocked hours enforcement ===
             # Check if current time falls within any blocked time range.
             # If so, kill all monitored apps regardless of time limits.
-            blocked_hours = config.get("blocked_hours", [])
             if is_within_blocked_hours(now, blocked_hours):
                 apps_killed = False
                 for app in apps:
@@ -409,6 +500,15 @@ def monitor():
                         remaining,
                     )
 
+                    # === Dedicated app limit notification ===
+                    # Warn user before specific app limit is reached.
+                    if notifications_enabled and remaining > 0:
+                        notification_manager.notify_dedicated_limit(
+                            app,
+                            remaining,
+                            warning_thresholds
+                        )
+
                     if usage_log[current_day][app] >= limit:
                         kill_app(app, logger)
 
@@ -421,6 +521,18 @@ def monitor():
                     total_used,
                     remaining_overall,
                 )
+                
+                # === Overall limit notification ===
+                # Warn user before overall time limit is reached.
+                if notifications_enabled and remaining_overall > 0:
+                    # Only notify if at least one monitored app is running
+                    any_app_running = any(app in running for app in apps)
+                    if any_app_running:
+                        notification_manager.notify_overall_limit(
+                            remaining_overall,
+                            warning_thresholds
+                        )
+                
                 if total_used >= overall_limit:
                     for app in running:
                         if app in apps:
