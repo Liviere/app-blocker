@@ -10,5 +10,6 @@
 	"watchdog_check_interval": 5,
 	"heartbeat_ttl_seconds": 70,
 	"event_log_enabled": true,
-	"boot_start_window_seconds": 300
+	"boot_start_window_seconds": 300,
+	"encryption_enabled": false
 }

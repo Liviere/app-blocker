@@ -13,13 +13,523 @@ from autostart import AutostartManager
 from system_tray import SystemTrayManager, is_tray_supported
 from single_instance import ensure_single_instance
 from logger_utils import get_logger, parse_log_line
+from security_manager import (
+    SecurityManager,
+    check_crypto_available,
+    get_min_password_length,
+)
+
+
+# === Password setup dialog ===
+# Shown on first run to set up master password.
+
+class MasterPasswordSetupDialog:
+    """
+    Dialog for initial master password setup.
+    
+    WHY: Users must set up encryption before using the app.
+    Offers two modes: custom password or generated (hidden) password.
+    """
+    
+    def __init__(self, parent):
+        self.result = None
+        self.generated_password = None
+        
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("App Blocker - Security Setup")
+        self.dialog.geometry("450x350")
+        # Note: Don't use transient() when parent is hidden - causes dialog to be invisible
+        self.dialog.grab_set()
+        self.dialog.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        
+        # Center dialog on screen (parent may be hidden)
+        self.dialog.update_idletasks()
+        screen_width = self.dialog.winfo_screenwidth()
+        screen_height = self.dialog.winfo_screenheight()
+        x = (screen_width - 450) // 2
+        y = (screen_height - 350) // 2
+        self.dialog.geometry(f"450x350+{x}+{y}")
+        
+        # Title
+        title_label = ttk.Label(
+            self.dialog,
+            text="Master Password Setup",
+            font=("Arial", 14, "bold")
+        )
+        title_label.pack(pady=(20, 10))
+        
+        # Info text
+        info_text = (
+            "Set up a master password for Protected Mode.\n"
+            "It's needed to deactivate Protected Mode."
+        )
+        info_label = ttk.Label(self.dialog, text=info_text, justify=tk.CENTER)
+        info_label.pack(pady=(0, 20))
+        
+        # Password mode selection
+        self.mode_var = tk.StringVar(value="custom")
+        
+        mode_frame = ttk.LabelFrame(self.dialog, text="Choose password type", padding=10)
+        mode_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
+        
+        ttk.Radiobutton(
+            mode_frame,
+            text="Set my own password",
+            variable=self.mode_var,
+            value="custom",
+            command=self._update_ui
+        ).pack(anchor=tk.W)
+        
+        ttk.Radiobutton(
+            mode_frame,
+            text="Generate random password (I won't know it)",
+            variable=self.mode_var,
+            value="generated",
+            command=self._update_ui
+        ).pack(anchor=tk.W)
+        
+        # Password entry frame
+        self.password_frame = ttk.Frame(self.dialog)
+        self.password_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
+        
+        ttk.Label(self.password_frame, text="Password:").grid(
+            row=0, column=0, sticky=tk.W, pady=5
+        )
+        self.password_var = tk.StringVar()
+        self.password_entry = ttk.Entry(
+            self.password_frame,
+            textvariable=self.password_var,
+            show="*",
+            width=30
+        )
+        self.password_entry.grid(row=0, column=1, padx=(10, 0), pady=5)
+        
+        ttk.Label(self.password_frame, text="Confirm:").grid(
+            row=1, column=0, sticky=tk.W, pady=5
+        )
+        self.confirm_var = tk.StringVar()
+        self.confirm_entry = ttk.Entry(
+            self.password_frame,
+            textvariable=self.confirm_var,
+            show="*",
+            width=30
+        )
+        self.confirm_entry.grid(row=1, column=1, padx=(10, 0), pady=5)
+        
+        min_len = get_min_password_length()
+        self.hint_label = ttk.Label(
+            self.password_frame,
+            text=f"Minimum {min_len} characters",
+            foreground="gray"
+        )
+        self.hint_label.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+        
+        # Generated password warning
+        self.generated_frame = ttk.Frame(self.dialog)
+        
+        warning_text = (
+            "⚠️ WARNING: With generated password you will NOT be able\n"
+            "to disable Protected Mode manually. The only way out\n"
+            "will be waiting for it to expire."
+        )
+        ttk.Label(
+            self.generated_frame,
+            text=warning_text,
+            foreground="red",
+            justify=tk.CENTER
+        ).pack()
+        
+        # Buttons
+        btn_frame = ttk.Frame(self.dialog)
+        btn_frame.pack(pady=20)
+        
+        ttk.Button(btn_frame, text="Setup", command=self._on_ok).pack(
+            side=tk.LEFT, padx=5
+        )
+        ttk.Button(btn_frame, text="Cancel", command=self._on_cancel).pack(
+            side=tk.LEFT, padx=5
+        )
+        
+        self._update_ui()
+        
+        # Ensure dialog is visible even when parent is hidden
+        self.dialog.deiconify()
+        self.dialog.lift()
+        self.dialog.focus_force()
+    
+    def _update_ui(self):
+        """Update UI based on selected mode."""
+        if self.mode_var.get() == "custom":
+            self.password_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
+            self.generated_frame.pack_forget()
+        else:
+            self.password_frame.pack_forget()
+            self.generated_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
+    
+    def _on_ok(self):
+        if self.mode_var.get() == "custom":
+            password = self.password_var.get()
+            confirm = self.confirm_var.get()
+            
+            if password != confirm:
+                messagebox.showerror("Error", "Passwords do not match")
+                return
+            
+            min_len = get_min_password_length()
+            if len(password) < min_len:
+                messagebox.showerror(
+                    "Error",
+                    f"Password must be at least {min_len} characters"
+                )
+                return
+            
+            self.result = ("custom", password)
+        else:
+            # Confirm user understands they won't know the password
+            if not messagebox.askyesno(
+                "Confirm",
+                "Are you sure you want to generate a random password?\n\n"
+                "You will NOT be able to:\n"
+                "- Manually disable Protected Mode\n"
+                "- Recover the password if lost\n\n"
+                "The only way to exit Protected Mode will be to wait\n"
+                "for it to expire."
+            ):
+                return
+            
+            self.result = ("generated", None)
+        
+        self.dialog.destroy()
+    
+    def _on_cancel(self):
+        self.result = None
+        self.dialog.destroy()
+    
+    def show(self):
+        """Show dialog and return result."""
+        self.dialog.wait_window()
+        return self.result
+
+
+# === Password unlock dialog ===
+# Shown when app starts to unlock encrypted config.
+
+class UnlockDialog:
+    """
+    Dialog to unlock app with master password.
+    
+    WHY: User must authenticate before accessing encrypted config.
+    """
+    
+    def __init__(self, parent, security_manager: SecurityManager):
+        self.security_manager = security_manager
+        self.result = False
+        self.attempts = 0
+        self.max_attempts = 5
+        
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("App Blocker - Unlock")
+        self.dialog.geometry("350x200")
+        # Note: Don't use transient() when parent is hidden - causes dialog to be invisible
+        self.dialog.grab_set()
+        self.dialog.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        
+        # Center dialog on screen (parent may be hidden)
+        self.dialog.update_idletasks()
+        screen_width = self.dialog.winfo_screenwidth()
+        screen_height = self.dialog.winfo_screenheight()
+        x = (screen_width - 350) // 2
+        y = (screen_height - 200) // 2
+        self.dialog.geometry(f"350x200+{x}+{y}")
+        
+        # Lock icon and title
+        title_label = ttk.Label(
+            self.dialog,
+            text="🔒 Enter Master Password",
+            font=("Arial", 12, "bold")
+        )
+        title_label.pack(pady=(20, 15))
+        
+        # Password entry
+        entry_frame = ttk.Frame(self.dialog)
+        entry_frame.pack(pady=(0, 10))
+        
+        ttk.Label(entry_frame, text="Password:").grid(row=0, column=0, padx=5)
+        self.password_var = tk.StringVar()
+        self.password_entry = ttk.Entry(
+            entry_frame,
+            textvariable=self.password_var,
+            show="*",
+            width=25
+        )
+        self.password_entry.grid(row=0, column=1, padx=5)
+        self.password_entry.bind("<Return>", lambda e: self._on_ok())
+        
+        # Attempts counter
+        self.attempts_label = ttk.Label(
+            self.dialog,
+            text="",
+            foreground="gray"
+        )
+        self.attempts_label.pack()
+        
+        # Buttons
+        btn_frame = ttk.Frame(self.dialog)
+        btn_frame.pack(pady=20)
+        
+        ttk.Button(btn_frame, text="Unlock", command=self._on_ok).pack(
+            side=tk.LEFT, padx=5
+        )
+        ttk.Button(btn_frame, text="Exit", command=self._on_cancel).pack(
+            side=tk.LEFT, padx=5
+        )
+        
+        # Ensure dialog is visible even when parent is hidden
+        self.dialog.deiconify()
+        self.dialog.lift()
+        self.dialog.focus_force()
+        
+        self.password_entry.focus_set()
+    
+    def _on_ok(self):
+        password = self.password_var.get()
+        
+        if self.security_manager.verify_password(password):
+            self.result = True
+            self.dialog.destroy()
+        else:
+            self.attempts += 1
+            remaining = self.max_attempts - self.attempts
+            
+            if remaining <= 0:
+                messagebox.showerror(
+                    "Access Denied",
+                    "Too many failed attempts. Application will exit."
+                )
+                self.result = False
+                self.dialog.destroy()
+            else:
+                self.attempts_label.config(
+                    text=f"Invalid password. {remaining} attempts remaining.",
+                    foreground="red"
+                )
+                self.password_var.set("")
+                self.password_entry.focus_set()
+    
+    def _on_cancel(self):
+        self.result = False
+        self.dialog.destroy()
+    
+    def show(self):
+        """Show dialog and return result."""
+        self.dialog.wait_window()
+        return self.result
+
+
+# === Protected mode activation dialog ===
+# Allows user to enable protected mode for specified duration.
+
+class ProtectedModeDialog:
+    """
+    Dialog to activate or deactivate Protected Mode.
+    
+    WHY: Provides UI for time-based commitment to monitoring.
+    """
+    
+    def __init__(self, parent, security_manager: SecurityManager, is_active: bool):
+        self.security_manager = security_manager
+        self.is_active = is_active
+        self.result = None
+        
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("App Blocker - Protected Mode")
+        self.dialog.geometry("400x300")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        
+        # Center dialog
+        self.dialog.geometry(
+            "+%d+%d" % (parent.winfo_rootx() + 100, parent.winfo_rooty() + 50)
+        )
+        
+        if is_active:
+            self._build_deactivate_ui()
+        else:
+            self._build_activate_ui()
+    
+    def _build_activate_ui(self):
+        """Build UI for activating protected mode."""
+        title_label = ttk.Label(
+            self.dialog,
+            text="🛡️ Activate Protected Mode",
+            font=("Arial", 14, "bold")
+        )
+        title_label.pack(pady=(20, 10))
+        
+        info_text = (
+            "Protected Mode will lock the following settings:\n\n"
+            "✓ Monitoring will be always enabled\n"
+            "✓ Autostart with Windows will be forced ON\n"
+            "✓ Minimize to tray will be forced ON\n"
+            "✓ Close button will be disabled\n"
+            "✓ Stop Monitoring button will be disabled\n\n"
+            "You can only exit by entering master password\n"
+            "or waiting for the protection period to expire."
+        )
+        info_label = ttk.Label(self.dialog, text=info_text, justify=tk.LEFT)
+        info_label.pack(pady=(0, 15), padx=20)
+        
+        # Duration selection
+        duration_frame = ttk.Frame(self.dialog)
+        duration_frame.pack(pady=(0, 15))
+        
+        ttk.Label(duration_frame, text="Protection period (days):").pack(side=tk.LEFT)
+        self.days_var = tk.StringVar(value="7")
+        days_spinbox = ttk.Spinbox(
+            duration_frame,
+            from_=1,
+            to=365,
+            textvariable=self.days_var,
+            width=10
+        )
+        days_spinbox.pack(side=tk.LEFT, padx=(10, 0))
+        
+        # Buttons
+        btn_frame = ttk.Frame(self.dialog)
+        btn_frame.pack(pady=10)
+        
+        ttk.Button(
+            btn_frame,
+            text="Activate Protected Mode",
+            command=self._on_activate
+        ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Cancel", command=self._on_cancel).pack(
+            side=tk.LEFT, padx=5
+        )
+    
+    def _build_deactivate_ui(self):
+        """Build UI for deactivating protected mode."""
+        title_label = ttk.Label(
+            self.dialog,
+            text="🛡️ Protected Mode Active",
+            font=("Arial", 14, "bold"),
+            foreground="green"
+        )
+        title_label.pack(pady=(20, 10))
+        
+        expiry = self.security_manager.get_protected_mode_expiry()
+        if expiry:
+            remaining = expiry - datetime.now(UTC)
+            days = remaining.days
+            hours = remaining.seconds // 3600
+            expiry_text = f"Expires in: {days} days, {hours} hours"
+        else:
+            expiry_text = "No expiration set"
+        
+        expiry_label = ttk.Label(
+            self.dialog,
+            text=expiry_text,
+            font=("Arial", 11)
+        )
+        expiry_label.pack(pady=(0, 20))
+        
+        if self.security_manager.is_hidden_password_mode():
+            # Cannot deactivate with hidden password
+            warning_label = ttk.Label(
+                self.dialog,
+                text="⚠️ You chose a generated password.\n"
+                     "Protected Mode cannot be manually disabled.\n"
+                     "You must wait for it to expire.",
+                foreground="red",
+                justify=tk.CENTER
+            )
+            warning_label.pack(pady=20)
+            
+            ttk.Button(
+                self.dialog,
+                text="Close",
+                command=self._on_cancel
+            ).pack(pady=10)
+        else:
+            # Password entry for deactivation
+            info_label = ttk.Label(
+                self.dialog,
+                text="Enter master password to deactivate:",
+                justify=tk.CENTER
+            )
+            info_label.pack(pady=(0, 10))
+            
+            entry_frame = ttk.Frame(self.dialog)
+            entry_frame.pack()
+            
+            self.password_var = tk.StringVar()
+            self.password_entry = ttk.Entry(
+                entry_frame,
+                textvariable=self.password_var,
+                show="*",
+                width=25
+            )
+            self.password_entry.pack()
+            self.password_entry.bind("<Return>", lambda e: self._on_deactivate())
+            
+            btn_frame = ttk.Frame(self.dialog)
+            btn_frame.pack(pady=20)
+            
+            ttk.Button(
+                btn_frame,
+                text="Deactivate",
+                command=self._on_deactivate
+            ).pack(side=tk.LEFT, padx=5)
+            ttk.Button(btn_frame, text="Cancel", command=self._on_cancel).pack(
+                side=tk.LEFT, padx=5
+            )
+    
+    def _on_activate(self):
+        try:
+            days = int(self.days_var.get())
+            if days < 1:
+                raise ValueError("Days must be positive")
+        except ValueError as e:
+            messagebox.showerror("Error", f"Invalid duration: {e}")
+            return
+        
+        if not messagebox.askyesno(
+            "Confirm",
+            f"Activate Protected Mode for {days} days?\n\n"
+            "You will not be able to disable monitoring\n"
+            "or close the app without the master password."
+        ):
+            return
+        
+        self.result = ("activate", days)
+        self.dialog.destroy()
+    
+    def _on_deactivate(self):
+        password = self.password_var.get()
+        
+        if self.security_manager.deactivate_protected_mode(password):
+            self.result = ("deactivate", None)
+            self.dialog.destroy()
+        else:
+            messagebox.showerror("Error", "Invalid password")
+            self.password_var.set("")
+            self.password_entry.focus_set()
+    
+    def _on_cancel(self):
+        self.result = None
+        self.dialog.destroy()
+    
+    def show(self):
+        """Show dialog and return result."""
+        self.dialog.wait_window()
+        return self.result
 
 
 class AppBlockerGUI:
-    def __init__(self, root, single_instance_lock=None):
+    def __init__(self, root, single_instance_lock=None, security_manager=None):
         self.root = root
         self.root.title("App Blocker - Manager")
-        self.root.geometry("600x500")
+        self.root.geometry("600x550")
 
         # Store single instance lock to keep it alive
         self.single_instance_lock = single_instance_lock
@@ -32,6 +542,10 @@ class AppBlockerGUI:
         self.heartbeat_path = self.app_dir / "monitor_heartbeat.json"
         self.session_state_path = self.app_dir / "gui_session.json"
         self.pending_updates_path = self.app_dir / "pending_time_limit_updates.json"
+
+        # === Security manager integration ===
+        # Security manager handles encryption and protected mode.
+        self.security_manager = security_manager
 
         # Initialize autostart manager
         self.autostart_manager = AutostartManager()
@@ -66,6 +580,9 @@ class AppBlockerGUI:
         self._log_boot_proximity("GUI startup")
         self.create_widgets()
         self.update_status()
+
+        # Apply protected mode restrictions if active
+        self._apply_protected_mode_restrictions()
 
         # Setup tray if enabled
         self.setup_tray_if_enabled()
@@ -109,6 +626,10 @@ class AppBlockerGUI:
             return [sys.executable, str(main_path)]
 
     def load_config(self):
+        # === Config loading with integrity check ===
+        # Config remains in plaintext for monitor compatibility.
+        # Security manager verifies integrity to detect manual edits.
+        
         try:
             with open(self.config_path, "r") as f:
                 self.config = json.load(f)
@@ -134,46 +655,58 @@ class AppBlockerGUI:
             self.save_config()
 
         self._normalize_time_limits()
-
+        self._ensure_config_defaults()
+        
+        # Verify config integrity if security manager is set up
+        if self.security_manager and self.security_manager.is_password_set():
+            if not self.security_manager.verify_config_integrity(self.config):
+                # Config was modified manually - log warning
+                # In protected mode this is more serious
+                print("WARNING: Config file was modified outside of the application")
+    
+    def _ensure_config_defaults(self):
+        """Ensure all required config fields have default values."""
+        changed = False
+        
         # Ensure required fields exist in config
         if "autostart" not in self.config:
             self.config["autostart"] = False
-            self.save_config()
+            changed = True
 
         if "minimize_to_tray" not in self.config:
             self.config["minimize_to_tray"] = False
-            self.save_config()
+            changed = True
 
         if "watchdog_enabled" not in self.config:
             self.config["watchdog_enabled"] = True
-            self.save_config()
+            changed = True
 
         if "watchdog_restart" not in self.config:
             self.config["watchdog_restart"] = True
-            self.save_config()
+            changed = True
 
         if "watchdog_check_interval" not in self.config:
             self.config["watchdog_check_interval"] = 5
-            self.save_config()
+            changed = True
 
         if "heartbeat_ttl_seconds" not in self.config:
             # Default to roughly 2 cycles of the monitoring interval plus buffer
             self.config["heartbeat_ttl_seconds"] = (
                 self.config.get("check_interval", 30) * 2 + 10
             )
-            self.save_config()
+            changed = True
 
         if "event_log_enabled" not in self.config:
             self.config["event_log_enabled"] = True
-            self.save_config()
+            changed = True
 
         if "boot_start_window_seconds" not in self.config:
             self.config["boot_start_window_seconds"] = 300
-            self.save_config()
+            changed = True
 
         if "time_limit_update_delay_hours" not in self.config:
             self.config["time_limit_update_delay_hours"] = 2
-            self.save_config()
+            changed = True
 
         try:
             delay_hours = int(self.config.get("time_limit_update_delay_hours", 2))
@@ -183,6 +716,9 @@ class AppBlockerGUI:
             delay_hours = 2
         if self.config["time_limit_update_delay_hours"] != delay_hours:
             self.config["time_limit_update_delay_hours"] = delay_hours
+            changed = True
+        
+        if changed:
             self.save_config()
 
     def _normalize_time_limits(self):
@@ -274,8 +810,13 @@ class AppBlockerGUI:
         return start_row + 1
 
     def save_config(self):
+        # === Config saving with integrity update ===
         with open(self.config_path, "w") as f:
             json.dump(self.config, f, indent=2)
+        
+        # Update config hash for integrity verification
+        if self.security_manager:
+            self.security_manager.update_config_hash(self.config)
 
     def create_widgets(self):
         # Main frame
@@ -400,15 +941,41 @@ class AppBlockerGUI:
             self.tray_var = tk.BooleanVar(
                 value=self.config.get("minimize_to_tray", False)
             )
-            tray_checkbox = ttk.Checkbutton(
+            self.tray_checkbox = ttk.Checkbutton(
                 settings_frame,
                 text="Minimize to system tray",
                 variable=self.tray_var,
                 command=self.toggle_tray_setting,
             )
-            tray_checkbox.grid(
+            self.tray_checkbox.grid(
                 row=next_row, column=0, columnspan=3, sticky=tk.W, pady=(5, 0)
             )
+            next_row += 1
+
+        # Store reference to autostart checkbox for protected mode
+        self.autostart_checkbox = autostart_checkbox
+
+        # === Protected Mode UI section ===
+        # Add protected mode button if security manager is available.
+        if self.security_manager:
+            protected_frame = ttk.LabelFrame(main_frame, text="Protected Mode", padding="10")
+            protected_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
+            
+            self.protected_status_label = ttk.Label(
+                protected_frame,
+                text="",
+                font=("Arial", 10)
+            )
+            self.protected_status_label.grid(row=0, column=0, padx=(0, 10))
+            
+            self.protected_btn = ttk.Button(
+                protected_frame,
+                text="Configure Protected Mode",
+                command=self.open_protected_mode_dialog
+            )
+            self.protected_btn.grid(row=0, column=1)
+            
+            self._update_protected_mode_status()
 
         # Configure grid weights
         self.root.columnconfigure(0, weight=1)
@@ -592,10 +1159,170 @@ class AppBlockerGUI:
             self.tray_var.set(not self.tray_var.get())
 
     def toggle_monitoring(self):
+        # === Protected mode check before stopping ===
         if self.is_monitoring:
+            if self._is_protected_mode_active():
+                messagebox.showwarning(
+                    "Protected Mode",
+                    "Cannot stop monitoring while Protected Mode is active.\n"
+                    "Use the Protected Mode button to deactivate."
+                )
+                return
             self.stop_monitoring()
         else:
             self.start_monitoring()
+
+    # === Protected Mode methods ===
+    # These methods handle protected mode UI and logic.
+
+    def _is_protected_mode_active(self) -> bool:
+        """Check if protected mode is currently active."""
+        if not self.security_manager:
+            return False
+        return self.security_manager.is_protected_mode_active()
+
+    def _update_protected_mode_status(self):
+        """Update protected mode status label."""
+        if not hasattr(self, 'protected_status_label'):
+            return
+        
+        if self._is_protected_mode_active():
+            expiry = self.security_manager.get_protected_mode_expiry()
+            if expiry:
+                remaining = expiry - datetime.now(UTC)
+                days = remaining.days
+                hours = remaining.seconds // 3600
+                text = f"🛡️ ACTIVE - Expires in {days}d {hours}h"
+            else:
+                text = "🛡️ ACTIVE - No expiration"
+            self.protected_status_label.config(text=text, foreground="green")
+            self.protected_btn.config(text="Manage Protected Mode")
+        else:
+            self.protected_status_label.config(text="🔓 Inactive", foreground="gray")
+            self.protected_btn.config(text="Activate Protected Mode")
+
+    def _apply_protected_mode_restrictions(self):
+        """Apply UI restrictions when protected mode is active."""
+        if not self._is_protected_mode_active():
+            return
+        
+        # Force enable settings
+        if not self.config.get("autostart", False):
+            self.config["autostart"] = True
+            self.autostart_manager.set_autostart(True)
+            self.save_config()
+        
+        if not self.config.get("minimize_to_tray", False) and self.tray_enabled:
+            self.config["minimize_to_tray"] = True
+            self.save_config()
+        
+        # Start monitoring if not already
+        if not self.is_monitoring and self.config.get("time_limits", {}).get("dedicated"):
+            self.config["enabled"] = True
+            self.save_config()
+        
+        # Disable UI elements - will be applied after widgets are created
+        self.root.after(100, self._enforce_protected_mode_ui)
+
+    def _enforce_protected_mode_ui(self):
+        """Disable UI elements in protected mode."""
+        if not self._is_protected_mode_active():
+            return
+        
+        # Disable stop monitoring button
+        if hasattr(self, 'toggle_btn'):
+            if self.is_monitoring:
+                self.toggle_btn.config(state=tk.DISABLED)
+        
+        # Disable autostart checkbox (forced on)
+        if hasattr(self, 'autostart_checkbox'):
+            self.autostart_checkbox.config(state=tk.DISABLED)
+            self.autostart_var.set(True)
+        
+        # Disable tray checkbox (forced on)
+        if hasattr(self, 'tray_checkbox') and self.tray_enabled:
+            self.tray_checkbox.config(state=tk.DISABLED)
+            self.tray_var.set(True)
+        
+        # Override close behavior
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close_protected)
+
+    def _on_close_protected(self):
+        """Handle close button in protected mode - minimize to tray instead."""
+        if self.tray_manager and self.tray_manager.is_running:
+            self.tray_manager.hide_window()
+        else:
+            messagebox.showwarning(
+                "Protected Mode",
+                "Cannot close application while Protected Mode is active.\n"
+                "The application will be minimized instead."
+            )
+            self.root.iconify()
+
+    def open_protected_mode_dialog(self):
+        """Open protected mode configuration dialog."""
+        if not self.security_manager:
+            return
+        
+        is_active = self._is_protected_mode_active()
+        dialog = ProtectedModeDialog(self.root, self.security_manager, is_active)
+        result = dialog.show()
+        
+        if result:
+            action, value = result
+            
+            if action == "activate":
+                if self.security_manager.activate_protected_mode(value):
+                    if self.logger:
+                        self.logger.info("Protected mode activated for %d days", value)
+                    
+                    # Apply restrictions immediately
+                    self._apply_protected_mode_restrictions()
+                    self._update_protected_mode_status()
+                    
+                    # Start monitoring if not already
+                    if not self.is_monitoring:
+                        self.start_monitoring()
+                    
+                    messagebox.showinfo(
+                        "Protected Mode",
+                        f"Protected Mode activated for {value} days.\n\n"
+                        "Monitoring will remain active and the application\n"
+                        "cannot be closed until the period expires."
+                    )
+            
+            elif action == "deactivate":
+                if self.logger:
+                    self.logger.info("Protected mode deactivated by user")
+                
+                # Re-enable UI elements
+                self._disable_protected_mode_ui()
+                self._update_protected_mode_status()
+                
+                messagebox.showinfo(
+                    "Protected Mode",
+                    "Protected Mode has been deactivated.\n"
+                    "You can now stop monitoring and close the application."
+                )
+
+    def _disable_protected_mode_ui(self):
+        """Re-enable UI elements after protected mode deactivation."""
+        # Re-enable toggle button
+        if hasattr(self, 'toggle_btn'):
+            self.toggle_btn.config(state=tk.NORMAL)
+        
+        # Re-enable checkboxes
+        if hasattr(self, 'autostart_checkbox'):
+            self.autostart_checkbox.config(state=tk.NORMAL)
+        
+        if hasattr(self, 'tray_checkbox') and self.tray_enabled:
+            self.tray_checkbox.config(state=tk.NORMAL)
+        
+        # Restore close behavior
+        if self.config.get("minimize_to_tray", False) and self.tray_manager:
+            self.root.protocol("WM_DELETE_WINDOW", self.on_window_close)
+        else:
+            self.root.protocol("WM_DELETE_WINDOW", self.on_window_close_quit)
 
     def open_log_viewer(self):
         if self.log_viewer_window and self.log_viewer_window.winfo_exists():
@@ -1283,11 +2010,70 @@ def main():
     )
     args = parser.parse_args()
 
+    # === Security manager initialization ===
+    # Handle password setup or unlock before showing main GUI.
+    
     root = tk.Tk()
-    app = AppBlockerGUI(root, single_instance_lock)
+    root.withdraw()  # Hide main window during security setup
+    
+    # Check if cryptography is available
+    if not check_crypto_available():
+        messagebox.showerror(
+            "Missing Dependency",
+            "The 'cryptography' package is required for encryption.\n\n"
+            "Please install it with:\n"
+            "pip install cryptography\n\n"
+            "Or using Poetry:\n"
+            "poetry install"
+        )
+        root.destroy()
+        sys.exit(1)
+    
+    # Get app directory for security manager
+    if getattr(sys, "frozen", False):
+        app_dir = Path(sys.executable).parent
+    else:
+        app_dir = Path(__file__).parent
+    
+    security_manager = SecurityManager(app_dir)
+    
+    if not security_manager.is_password_set():
+        # First run - show password setup dialog
+        setup_dialog = MasterPasswordSetupDialog(root)
+        result = setup_dialog.show()
+        
+        if result is None:
+            # User cancelled - exit
+            root.destroy()
+            sys.exit(0)
+        
+        mode, password = result
+        
+        if mode == "custom":
+            if not security_manager.setup_password(password):
+                messagebox.showerror(
+                    "Error",
+                    f"Password must be at least {get_min_password_length()} characters."
+                )
+                root.destroy()
+                sys.exit(1)
+        else:
+            # Generated password - user explicitly doesn't want to know it
+            success, _ = security_manager.setup_generated_password()
+            if not success:
+                messagebox.showerror("Error", "Failed to generate password.")
+                root.destroy()
+                sys.exit(1)
 
-    # Set up appropriate close behavior based on tray settings
-    if app.config.get("minimize_to_tray", False) and app.tray_manager:
+    # Show main window
+    root.deiconify()
+    
+    app = AppBlockerGUI(root, single_instance_lock, security_manager)
+
+    # Set up appropriate close behavior based on tray settings and protected mode
+    if app._is_protected_mode_active():
+        root.protocol("WM_DELETE_WINDOW", app._on_close_protected)
+    elif app.config.get("minimize_to_tray", False) and app.tray_manager:
         root.protocol("WM_DELETE_WINDOW", app.on_window_close)
     else:
         root.protocol("WM_DELETE_WINDOW", app.on_window_close_quit)

@@ -15,6 +15,8 @@
 - 💾 **State Persistence** - remembers monitoring state between sessions
 - 🛡️ **Watchdog & Heartbeat** - detects forced terminations of the monitor, logs incidents, and can automatically restart it
 - 📝 **Log Viewer** - built-in window for browsing and filtering `app_blocker.log`
+- 🔐 **Master Password** - secure your configuration with a master password
+- 🛡️ **Protected Mode** - lock monitoring settings for a specified period to prevent circumvention
 
 ## 🚀 Requirements
 
@@ -27,6 +29,7 @@
 - `psutil` - for process monitoring
 - `pystray` - for system tray functionality
 - `pillow` - for tray icon image processing
+- `cryptography` - for password hashing and security features
 - `tkinter` - graphical interface (built into Python)
 
 ## 📦 Installation
@@ -106,6 +109,36 @@ python main.py # For monitoring
 - App automatically remembers if monitoring was active when closed
 - On next startup, monitoring will resume automatically if it was previously enabled
 - Only works if applications are configured for monitoring
+
+#### Master Password & Security
+
+On first launch, you'll be prompted to set up a master password:
+
+- **Custom Password**: Set your own password (minimum 8 characters)
+- **Generated Password**: Let the app generate a random password you won't know
+  - The password will NOT be shown to you
+  - With this option, you cannot manually deactivate Protected Mode
+
+The master password is used to:
+- Deactivate Protected Mode (if using custom password)
+- Verify configuration integrity (detect manual edits to config.json)
+
+#### Protected Mode
+
+Protected Mode is a commitment device that locks your monitoring settings:
+
+- **Activate via**: Click "Activate Protected Mode" in the GUI
+- **Duration**: Set for 1-365 days
+- **When active**:
+  - Monitoring cannot be stopped
+  - Autostart is forced ON
+  - Minimize to tray is forced ON
+  - Application cannot be closed (minimizes to tray instead)
+- **Exit options**:
+  - Wait for the protection period to expire
+  - Enter master password to deactivate early (if using custom password)
+
+This is ideal for users who want to enforce self-discipline and prevent themselves from circumventing time limits.
 
 #### Log Viewer
 

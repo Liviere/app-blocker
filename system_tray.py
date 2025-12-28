@@ -89,11 +89,17 @@ class SystemTrayManager:
         """Create context menu items"""
         monitoring_text = "Stop Monitoring" if self.gui_app.is_monitoring else "Start Monitoring"
         
+        # Check if protected mode is active
+        is_protected = False
+        if hasattr(self.gui_app, '_is_protected_mode_active'):
+            is_protected = self.gui_app._is_protected_mode_active()
+        
+        # Disable monitoring toggle and quit during protected mode
         return (
             pystray.MenuItem("Show App Blocker", self.show_window, default=True),
-            pystray.MenuItem(monitoring_text, self.toggle_monitoring),
+            pystray.MenuItem(monitoring_text, self.toggle_monitoring, enabled=not is_protected),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Quit", self.quit_application)
+            pystray.MenuItem("Quit", self.quit_application, enabled=not is_protected)
         )
     
     def update_menu(self):
