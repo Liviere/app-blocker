@@ -3,7 +3,6 @@
 	"time_limit_update_delay_hours": 2,
 	"check_interval": 30,
 	"blocked_hours": [],
-	"enabled": false,
 	"autostart": false,
 	"minimize_to_tray": false,
 	"watchdog_enabled": true,

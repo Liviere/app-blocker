@@ -93,6 +93,30 @@ python main.py # For monitoring
 
 ### Advanced Features
 
+#### Development Mode
+
+- Check **"Development mode (immediate config changes)"** to enable development environment
+- **Environment Variable**: `APP_BLOCKER_ENV`
+  - Set to `DEVELOPMENT` for immediate config changes
+  - Set to `PRODUCTION` (default) for delayed changes
+- **Production Mode** (default):
+  - Time limit changes are scheduled with a delay (minimum 2 hours)
+  - Prevents circumventing limits by quickly changing configuration
+  - Pending changes are stored in `pending_time_limit_updates.json`
+- **Development Mode** (`APP_BLOCKER_ENV=DEVELOPMENT`):
+  - Time limit changes are applied immediately without delay
+  - Useful for testing and rapid iteration
+  - No pending updates queue - changes take effect on next monitor cycle (~30 seconds)
+- Toggle between modes in the Settings section of the GUI (affects current session)
+- For permanent development mode, set system environment variable:
+  ```powershell
+  # Windows PowerShell (current user)
+  [System.Environment]::SetEnvironmentVariable('APP_BLOCKER_ENV', 'DEVELOPMENT', 'User')
+  
+  # Or for current session only
+  $env:APP_BLOCKER_ENV = 'DEVELOPMENT'
+  ```
+
 #### Windows Autostart
 
 - Check **"Start with Windows (autostart)"** to automatically launch App Blocker when Windows starts
@@ -162,7 +186,7 @@ Configuration is stored in `config.json`:
 - `time_limits`: Monitoring limits container
    - `dedicated`: Dictionary of applications and their daily limits (in minutes)
    - `overall`: Optional global limit (in minutes) across all monitored apps; `0` disables the global cap
-- `time_limit_update_delay_hours`: Delay (hours, minimum 2) before non-additive limit changes take effect; pending updates are stored in `pending_time_limit_updates.json` and applied after the delay
+- `time_limit_update_delay_hours`: Delay (hours, minimum 2) before non-additive limit changes take effect in PRODUCTION mode; pending updates are stored in `pending_time_limit_updates.json` and applied after the delay (bypassed in DEVELOPMENT mode)
 - `check_interval`: How often to check processes (in seconds)
 - `enabled`: Whether monitoring is active (automatically managed)
 - `autostart`: Enable automatic startup with Windows

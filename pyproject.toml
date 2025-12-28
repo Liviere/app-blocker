@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "app-blocker"
-version = "1.2.1"
+version = "1.2.2"
 description = "Application for monitoring and limiting time spent on specific programs"
 authors = ["Your Name <your.email@example.com>"]
 readme = "README.md"

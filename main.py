@@ -102,6 +102,15 @@ HEARTBEAT_PATH = APP_DIR / "monitor_heartbeat.json"
 PENDING_UPDATES_PATH = APP_DIR / "pending_time_limit_updates.json"
 
 
+def _is_development_mode():
+    """Check if application is running in development mode.
+    
+    WHY: Development mode bypasses time limit update delays for faster iteration.
+    Reads from APP_BLOCKER_ENV environment variable.
+    """
+    return os.environ.get("APP_BLOCKER_ENV", "PRODUCTION").upper() == "DEVELOPMENT"
+
+
 def _normalize_time_limits(config):
     """Ensure time_limits supports dedicated and overall limits (legacy apps supported)"""
     raw_limits = config.get("time_limits")
@@ -147,6 +156,11 @@ def _save_pending_updates(updates):
 
 def _apply_pending_updates(config):
     """Apply due pending time limit updates to config and persist both files"""
+    # === Skip pending updates in development mode ===
+    # In dev mode, changes are applied immediately, so no pending updates exist.
+    if _is_development_mode():
+        return config
+    
     updates = _load_pending_updates()
     if not updates:
         return config

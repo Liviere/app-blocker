@@ -1243,8 +1243,62 @@ class AppBlockerGUI:
         except Exception:
             pass
 
+    def _is_development_mode(self):
+        """Check if application is running in development mode.
+        
+        WHY: Development mode bypasses time limit update delays for faster iteration.
+        Reads from APP_BLOCKER_ENV environment variable.
+        """
+        return os.environ.get("APP_BLOCKER_ENV", "PRODUCTION").upper() == "DEVELOPMENT"
+    
+    def _set_environment_mode(self, mode: str):
+        """Set environment mode via OS environment variable.
+        
+        WHY: Environment variable persists for the current process and child processes.
+        Note: This only affects current session. For permanent change, set system env var.
+        """
+        os.environ["APP_BLOCKER_ENV"] = mode.upper()
+
     def _schedule_time_limit_update(self, update):
         """Queue a time limit update to apply after configured delay"""
+        # === Immediate apply in development mode ===
+        # In dev mode, apply changes immediately instead of scheduling.
+        if self._is_development_mode():
+            # Apply immediately - modify config directly
+            limits = self.config.get("time_limits", {})
+            dedicated = limits.get("dedicated", {})
+            
+            update_type = update.get("type")
+            if update_type == "set_limit":
+                app = update.get("app")
+                limit = update.get("limit")
+                if app and limit is not None:
+                    dedicated[app] = limit
+            elif update_type == "set_overall":
+                limit = update.get("limit")
+                if limit is not None:
+                    limits["overall"] = limit
+            elif update_type == "remove_app":
+                app = update.get("app")
+                if app and app in dedicated:
+                    dedicated.pop(app, None)
+            elif update_type == "replace_app":
+                old_app = update.get("old_app")
+                new_app = update.get("new_app")
+                limit = update.get("limit")
+                if new_app and limit is not None:
+                    if old_app:
+                        dedicated.pop(old_app, None)
+                    dedicated[new_app] = limit
+            
+            limits["dedicated"] = dedicated
+            self.config["time_limits"] = limits
+            self.save_config()
+            
+            # Return current time to indicate immediate application
+            return datetime.now(UTC)
+        
+        # Production mode - schedule for later
         try:
             delay_hours = int(self.config.get("time_limit_update_delay_hours", 2))
         except Exception:
@@ -1348,7 +1402,7 @@ class AppBlockerGUI:
             side=tk.LEFT, padx=(0, 5)
         )
         
-        # === CHECKPOINT 4: Blocked Hours button in GUI ===
+        # === Blocked Hours button in GUI ===
         # Button to open blocked hours configuration dialog.
         ttk.Button(
             btn_frame, text="Blocked Hours", command=self.open_blocked_hours_dialog
@@ -1497,16 +1551,25 @@ class AppBlockerGUI:
         result = dialog.show()
         if result:
             app_name, time_limit = result
-            try:
-                self.config["time_limits"]["dedicated"][app_name] = time_limit * 60
-                self.save_config()
-                self.refresh_apps_list()
-                print(f"Added application: {app_name} with limit {time_limit} minutes")
-            except ValueError as e:
-                messagebox.showerror("Error", f"Invalid input: {e}")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to add application: {e}")
-                print(f"Error adding application: {e}")
+            update = {
+                "type": "set_limit",
+                "app": app_name,
+                "limit": time_limit * 60,
+            }
+            apply_at = self._schedule_time_limit_update(update)
+            if self._is_development_mode():
+                messagebox.showinfo(
+                    "Application Added",
+                    f"Application '{app_name}' added with limit {time_limit}min.\n"
+                    f"Change applied immediately (development mode).",
+                )
+            else:
+                messagebox.showinfo(
+                    "Application Added",
+                    f"Application '{app_name}' will be added with limit {time_limit}min.\n"
+                    f"This change will take effect at: {apply_at.strftime('%Y-%m-%d %H:%M:%S UTC')}",
+                )
+            self.refresh_apps_list()
 
     def edit_app(self):
         selection = self.apps_tree.selection()
@@ -1532,10 +1595,17 @@ class AppBlockerGUI:
                 "limit": time_limit * 60,
             }
             apply_at = self._schedule_time_limit_update(update)
-            messagebox.showinfo(
-                "Scheduled",
-                f"Change scheduled for {apply_at.strftime('%Y-%m-%d %H:%M UTC')} (min 2h delay)",
-            )
+            if self._is_development_mode():
+                messagebox.showinfo(
+                    "Application Updated",
+                    f"Application updated to '{new_app_name}' with limit {time_limit}min.\n"
+                    f"Change applied immediately (development mode).",
+                )
+            else:
+                messagebox.showinfo(
+                    "Scheduled",
+                    f"Change scheduled for {apply_at.strftime('%Y-%m-%d %H:%M UTC')} (min 2h delay)",
+                )
             self.refresh_apps_list()
 
     def remove_app(self):
@@ -1550,13 +1620,20 @@ class AppBlockerGUI:
         if messagebox.askyesno("Confirm", f"Remove {app_name} from monitoring?"):
             update = {"type": "remove_app", "app": app_name}
             apply_at = self._schedule_time_limit_update(update)
-            messagebox.showinfo(
-                "Scheduled",
-                f"Removal scheduled for {apply_at.strftime('%Y-%m-%d %H:%M UTC')} (min 2h delay)",
-            )
+            if self._is_development_mode():
+                messagebox.showinfo(
+                    "Application Removed",
+                    f"Application '{app_name}' removed.\n"
+                    f"Change applied immediately (development mode).",
+                )
+            else:
+                messagebox.showinfo(
+                    "Scheduled",
+                    f"Removal scheduled for {apply_at.strftime('%Y-%m-%d %H:%M UTC')} (min 2h delay)",
+                )
             self.refresh_apps_list()
 
-    # === CHECKPOINT 5: Blocked hours dialog handler ===
+    # === Blocked hours dialog handler ===
     # Opens the blocked hours configuration dialog and saves changes.
     
     def open_blocked_hours_dialog(self):
@@ -1580,7 +1657,7 @@ class AppBlockerGUI:
                     "Changes take effect immediately."
                 )
 
-    def save_settings(self):
+    def save_settings(self):        
         try:
             interval = int(self.interval_var.get())
             if interval < 5:
@@ -1601,13 +1678,20 @@ class AppBlockerGUI:
             if overall_minutes != current_overall_minutes:
                 update = {"type": "set_overall", "limit": overall_minutes * 60}
                 apply_at = self._schedule_time_limit_update(update)
-                messagebox.showinfo(
-                    "Scheduled",
-                    f"Overall limit change scheduled for {apply_at.strftime('%Y-%m-%d %H:%M UTC')} (min 2h delay)",
-                )
-
-            self.save_config()
-            messagebox.showinfo("Success", "Settings saved successfully!")
+                if self._is_development_mode():
+                    messagebox.showinfo(
+                        "Settings Saved",
+                        f"Overall time limit updated to {overall_minutes}min.\n"
+                        f"Change applied immediately (development mode).",
+                    )
+                else:
+                    messagebox.showinfo(
+                        "Scheduled",
+                        f"Overall limit change scheduled for {apply_at.strftime('%Y-%m-%d %H:%M UTC')} (min 2h delay)",
+                    )
+            else:
+                self.save_config()
+                messagebox.showinfo("Success", "Settings saved successfully!")
         except ValueError as e:
             messagebox.showerror("Error", f"Invalid setting: {e}")
 
