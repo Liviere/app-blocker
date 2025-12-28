@@ -26,6 +26,28 @@ CONFIG_PATH = APP_DIR / "config.json"
 LOG_PATH = APP_DIR / "usage_log.json"
 HEARTBEAT_PATH = APP_DIR / "monitor_heartbeat.json"
 
+
+def _normalize_time_limits(config):
+    """Ensure time_limits supports dedicated and overall limits (legacy apps supported)"""
+    raw_limits = config.get("time_limits")
+    legacy = config.get("apps") if "time_limits" not in config else None
+
+    source = raw_limits if isinstance(raw_limits, dict) else legacy if isinstance(legacy, dict) else {}
+
+    if "dedicated" in source or "overall" in source:
+        dedicated = source.get("dedicated", {}) or {}
+        overall = source.get("overall", 0) or 0
+        normalized = {"overall": overall, "dedicated": dedicated}
+    else:
+        # Backward compatibility: flat mapping of app limits
+        normalized = {"overall": 0, "dedicated": source}
+
+    config["time_limits"] = normalized
+    # Drop legacy key to avoid divergence
+    if "apps" in config:
+        config.pop("apps", None)
+    return config
+
 def _log_boot_proximity(logger, component, threshold):
     if threshold <= 0:
         return
@@ -59,13 +81,13 @@ def load_config():
     """Load configuration from file"""
     try:
         with open(CONFIG_PATH, "r") as f:
-            return json.load(f)
+            return _normalize_time_limits(json.load(f))
     except FileNotFoundError:
         # Try to load default config
         default_config_path = APP_DIR / "config.default.json"
         try:
             with open(default_config_path, "r") as f:
-                config = json.load(f)
+                config = _normalize_time_limits(json.load(f))
             print(f"Loaded default configuration from {default_config_path}")
             # Save as user config
             with open(CONFIG_PATH, "w") as f:
@@ -127,7 +149,11 @@ def monitor():
         logger.info("Monitoring disabled in config; exiting")
         sys.exit(0)
 
-    if not config["apps"]:
+    limits = config.get("time_limits", {}) if isinstance(config, dict) else {}
+    dedicated_apps = limits.get("dedicated", {}) if isinstance(limits, dict) else {}
+    overall_limit = limits.get("overall", 0) if isinstance(limits, dict) else 0
+
+    if not dedicated_apps:
         logger.info("No applications configured for monitoring; exiting")
         sys.exit(0)
 
@@ -136,9 +162,9 @@ def monitor():
     today = datetime.now().strftime("%Y-%m-%d")
 
     if today not in usage_log:
-        usage_log[today] = {app: 0 for app in config["apps"]}
+        usage_log[today] = {app: 0 for app in dedicated_apps}
 
-    logger.info("Monitoring applications: %s", ", ".join(config["apps"].keys()))
+    logger.info("Monitoring applications: %s", ", ".join(dedicated_apps.keys()))
 
     while True:
         try:
@@ -151,7 +177,9 @@ def monitor():
                 logger.error("Config file missing; stopping monitoring")
                 break
 
-            apps = config["apps"]
+            limits = config.get("time_limits", {}) if isinstance(config, dict) else {}
+            apps = limits.get("dedicated", {}) if isinstance(limits, dict) else {}
+            overall_limit = limits.get("overall", 0) if isinstance(limits, dict) else 0
             interval = config.get("check_interval", 30)
 
             # Check if monitoring is still enabled
@@ -191,6 +219,20 @@ def monitor():
 
                     if usage_log[current_day][app] >= limit:
                         kill_app(app, logger)
+
+            # === CHECKPOINT 1: overall usage enforcement ===
+            if overall_limit and overall_limit > 0:
+                total_used = sum(usage_log[current_day].get(app, 0) for app in apps)
+                remaining_overall = overall_limit - total_used
+                logger.info(
+                    "Overall usage | used=%ss remaining=%ss",
+                    total_used,
+                    remaining_overall,
+                )
+                if total_used >= overall_limit:
+                    for app in running:
+                        if app in apps:
+                            kill_app(app, logger)
 
             save_log(usage_log)
             _update_heartbeat("running")

@@ -29,7 +29,7 @@ class TestConfigurationReload(unittest.TestCase):
 
         # Initial config
         self.initial_config = {
-            "apps": {"notepad.exe": 3600},  # 60 minutes in seconds
+            "time_limits": {"overall": 0, "dedicated": {"notepad.exe": 3600}},
             "check_interval": 1,  # 1 second for fast testing
             "enabled": True,
         }
@@ -72,8 +72,8 @@ class TestConfigurationReload(unittest.TestCase):
                 if iteration_count[0] == 2:
                     # Simulate: app has used 2 seconds, limit was 3600
                     # Now increase limit to 7200 to prevent kill
-                    updated_config = self.initial_config.copy()
-                    updated_config["apps"]["notepad.exe"] = 7200  # Increase to 120 minutes
+                    updated_config = json.loads(json.dumps(self.initial_config))
+                    updated_config["time_limits"]["dedicated"]["notepad.exe"] = 7200
                     with open(self.config_path, "w") as f:
                         json.dump(updated_config, f, indent=2)
 
@@ -125,8 +125,8 @@ class TestConfigurationReload(unittest.TestCase):
 
                 # After 2 iterations, add chrome.exe to monitoring
                 if iteration_count[0] == 2:
-                    updated_config = self.initial_config.copy()
-                    updated_config["apps"]["chrome.exe"] = 1800  # 30 minutes
+                    updated_config = json.loads(json.dumps(self.initial_config))
+                    updated_config["time_limits"]["dedicated"]["chrome.exe"] = 1800
                     with open(self.config_path, "w") as f:
                         json.dump(updated_config, f, indent=2)
 
@@ -257,6 +257,46 @@ class TestConfigurationReload(unittest.TestCase):
         # Should have stopped naturally after 3 iterations (not hit failsafe at 10)
         self.assertLess(iteration_count[0], 10)
         self.assertGreaterEqual(iteration_count[0], 2)
+
+    @patch("main.kill_app")
+    def test_overall_limit_kills_all_monitored_apps(self, mock_kill):
+        """Ensure overall limit triggers closing all monitored apps"""
+        overall_config = {
+            "time_limits": {
+                "overall": 2,
+                "dedicated": {"app1.exe": 10, "app2.exe": 10},
+            },
+            "check_interval": 1,
+            "enabled": True,
+        }
+
+        with open(self.config_path, "w") as f:
+            json.dump(overall_config, f, indent=2)
+
+        with patch.object(main, "CONFIG_PATH", self.config_path), patch.object(
+            main, "LOG_PATH", self.log_path
+        ):
+            proc1 = Mock()
+            proc1.name.return_value = "app1.exe"
+            proc1.pid = 1
+
+            proc2 = Mock()
+            proc2.name.return_value = "app2.exe"
+            proc2.pid = 2
+
+            def stop_after_first_sleep(_duration):
+                raise KeyboardInterrupt()
+
+            with patch("main.psutil.process_iter", return_value=[proc1, proc2]), patch(
+                "time.sleep", side_effect=stop_after_first_sleep
+            ):
+                try:
+                    main.monitor()
+                except (KeyboardInterrupt, SystemExit):
+                    pass
+
+        killed_apps = {call.args[0] for call in mock_kill.call_args_list}
+        self.assertSetEqual(killed_apps, {"app1.exe", "app2.exe"})
 
 
 if __name__ == "__main__":

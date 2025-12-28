@@ -121,7 +121,7 @@ class AppBlockerGUI:
             except FileNotFoundError:
                 # Fallback to hardcoded default
                 self.config = {
-                    "apps": {},
+                    "time_limits": {"overall": 0, "dedicated": {}},
                     "check_interval": 30,
                     "enabled": False,
                     "autostart": False,
@@ -131,6 +131,8 @@ class AppBlockerGUI:
 
             # Save the config to create user's config file
             self.save_config()
+
+        self._normalize_time_limits()
 
         # Ensure required fields exist in config
         if "autostart" not in self.config:
@@ -167,6 +169,32 @@ class AppBlockerGUI:
         if "boot_start_window_seconds" not in self.config:
             self.config["boot_start_window_seconds"] = 300
             self.save_config()
+
+    def _normalize_time_limits(self):
+        """Keep time_limits in dedicated/overall shape (legacy apps supported)"""
+        limits = self.config.get("time_limits")
+        legacy = self.config.get("apps") if "time_limits" not in self.config else None
+
+        source = limits if isinstance(limits, dict) else legacy if isinstance(legacy, dict) else {}
+
+        if "dedicated" in source or "overall" in source:
+            dedicated = source.get("dedicated", {}) or {}
+            overall = source.get("overall", 0) or 0
+            normalized = {"overall": overall, "dedicated": dedicated}
+        else:
+            normalized = {"overall": 0, "dedicated": source}
+
+        self.config["time_limits"] = normalized
+        if "apps" in self.config:
+            self.config.pop("apps", None)
+
+    def _get_overall_minutes(self):
+        """Expose overall cap in minutes for settings UI"""
+        overall_seconds = self.config.get("time_limits", {}).get("overall", 0)
+        try:
+            return int(overall_seconds) // 60
+        except Exception:
+            return 0
 
     def save_config(self):
         with open(self.config_path, "w") as f:
@@ -250,9 +278,21 @@ class AppBlockerGUI:
         )
         interval_entry.grid(row=0, column=1, padx=(10, 0))
 
+        # ===: Overall limit UI ===
+        ttk.Label(settings_frame, text="Overall Limit (minutes, 0=off):").grid(
+            row=1, column=0, sticky=tk.W, pady=(5, 0)
+        )
+        self.overall_limit_var = tk.StringVar(
+            value=str(self._get_overall_minutes())
+        )
+        overall_entry = ttk.Entry(
+            settings_frame, textvariable=self.overall_limit_var, width=10
+        )
+        overall_entry.grid(row=1, column=1, padx=(10, 0), pady=(5, 0))
+
         ttk.Button(
             settings_frame, text="Save Settings", command=self.save_settings
-        ).grid(row=0, column=2, padx=(10, 0))
+        ).grid(row=1, column=2, rowspan=2, padx=(10, 0), pady=(0, 0), sticky=tk.N)
 
         # Autostart setting
         # Sync config with actual registry state
@@ -269,7 +309,7 @@ class AppBlockerGUI:
             command=self.toggle_autostart,
         )
         autostart_checkbox.grid(
-            row=1, column=0, columnspan=3, sticky=tk.W, pady=(10, 0)
+            row=2, column=0, columnspan=3, sticky=tk.W, pady=(10, 0)
         )
 
         # System tray setting (only if supported)
@@ -283,7 +323,7 @@ class AppBlockerGUI:
                 variable=self.tray_var,
                 command=self.toggle_tray_setting,
             )
-            tray_checkbox.grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=(5, 0))
+            tray_checkbox.grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=(5, 0))
 
         # Configure grid weights
         self.root.columnconfigure(0, weight=1)
@@ -304,7 +344,8 @@ class AppBlockerGUI:
         usage_today = self.get_today_usage()
 
         # Add apps to tree
-        for app_name, time_limit in self.config["apps"].items():
+        dedicated = self.config.get("time_limits", {}).get("dedicated", {})
+        for app_name, time_limit in dedicated.items():
             used_time = usage_today.get(app_name, 0)
             self.apps_tree.insert(
                 "",
@@ -331,7 +372,9 @@ class AppBlockerGUI:
         if result:
             app_name, time_limit = result
             try:
-                self.config["apps"][app_name] = time_limit * 60  # Convert to seconds
+                self.config["time_limits"]["dedicated"][app_name] = (
+                    time_limit * 60
+                )
                 self.save_config()
                 self.refresh_apps_list()
                 print(f"Added application: {app_name} with limit {time_limit} minutes")
@@ -349,7 +392,9 @@ class AppBlockerGUI:
 
         item = self.apps_tree.item(selection[0])
         app_name = item["values"][0]
-        current_limit = self.config["apps"][app_name] // 60  # Convert to minutes
+        current_limit = (
+            self.config["time_limits"]["dedicated"][app_name] // 60
+        )  # Convert to minutes
 
         dialog = AppDialog(self.root, "Edit Application", app_name, current_limit)
         result = dialog.show()
@@ -358,9 +403,11 @@ class AppBlockerGUI:
 
             # Remove old entry if name changed
             if new_app_name != app_name:
-                del self.config["apps"][app_name]
+                del self.config["time_limits"]["dedicated"][app_name]
 
-            self.config["apps"][new_app_name] = time_limit * 60  # Convert to seconds
+            self.config["time_limits"]["dedicated"][new_app_name] = (
+                time_limit * 60
+            )
             self.save_config()
             self.refresh_apps_list()
 
@@ -374,7 +421,7 @@ class AppBlockerGUI:
         app_name = item["values"][0]
 
         if messagebox.askyesno("Confirm", f"Remove {app_name} from monitoring?"):
-            del self.config["apps"][app_name]
+            del self.config["time_limits"]["dedicated"][app_name]
             self.save_config()
             self.refresh_apps_list()
 
@@ -384,11 +431,16 @@ class AppBlockerGUI:
             if interval < 5:
                 raise ValueError("Interval must be at least 5 seconds")
 
+            overall_minutes = int(self.overall_limit_var.get())
+            if overall_minutes < 0:
+                raise ValueError("Overall limit cannot be negative")
+
             self.config["check_interval"] = interval
+            self.config["time_limits"]["overall"] = overall_minutes * 60
             self.save_config()
             messagebox.showinfo("Success", "Settings saved successfully!")
         except ValueError as e:
-            messagebox.showerror("Error", f"Invalid interval: {e}")
+            messagebox.showerror("Error", f"Invalid setting: {e}")
 
     def toggle_autostart(self):
         """Handle autostart checkbox toggle"""
@@ -642,7 +694,7 @@ class AppBlockerGUI:
 
 
     def start_monitoring(self):
-        if not self.config["apps"]:
+        if not self.config.get("time_limits", {}).get("dedicated"):
             messagebox.showwarning(
                 "Warning", "No applications configured for monitoring."
             )
@@ -792,7 +844,7 @@ class AppBlockerGUI:
             self.logger.info("Restoring monitoring state from config...")
         if self.config.get("enabled", False):
             # Only restore if there are apps to monitor
-            if self.config.get("apps", {}):
+            if self.config.get("time_limits", {}).get("dedicated"):
                 if self.logger:
                     self.logger.info("Previous session had monitoring enabled; restoring")
                 try:

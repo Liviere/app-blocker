@@ -125,7 +125,9 @@ The application will:
 
 Configuration is stored in `config.json`:
 
-- `apps`: Dictionary of applications and their daily limits (in minutes)
+- `time_limits`: Monitoring limits container
+   - `dedicated`: Dictionary of applications and their daily limits (in minutes)
+   - `overall`: Optional global limit (in minutes) across all monitored apps; `0` disables the global cap
 - `check_interval`: How often to check processes (in seconds)
 - `enabled`: Whether monitoring is active (automatically managed)
 - `autostart`: Enable automatic startup with Windows

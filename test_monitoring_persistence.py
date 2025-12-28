@@ -20,14 +20,17 @@ def test_monitoring_persistence():
     
     # Test config with monitoring enabled and some apps
     test_config = {
-        "apps": {
-            "notepad.exe": 3600,  # 60 minutes
-            "chrome.exe": 7200    # 120 minutes
+        "time_limits": {
+            "overall": 0,
+            "dedicated": {
+                "notepad.exe": 3600,  # 60 minutes
+                "chrome.exe": 7200,  # 120 minutes
+            },
         },
         "check_interval": 30,
         "enabled": True,  # This should trigger auto-restore
         "autostart": False,
-        "minimize_to_tray": False
+        "minimize_to_tray": False,
     }
     
     # Write test config
@@ -37,10 +40,10 @@ def test_monitoring_persistence():
     print(f"Created test config at: {config_path}")
     print(f"Config contains: {test_config}")
     print(f"Monitoring enabled: {test_config['enabled']}")
-    print(f"Apps configured: {len(test_config['apps'])}")
+    print(f"Apps configured: {len(test_config['time_limits']['dedicated'])}")
     
     # Test what should happen on startup
-    if test_config.get("enabled", False) and test_config.get("apps", {}):
+    if test_config.get("enabled", False) and test_config.get("time_limits", {}).get("dedicated"):
         print("✅ Should auto-start monitoring on startup")
     else:
         print("❌ Should NOT auto-start monitoring")
@@ -58,36 +61,36 @@ def test_no_monitoring_persistence():
         {
             "name": "Disabled monitoring",
             "config": {
-                "apps": {"notepad.exe": 3600},
+                "time_limits": {"overall": 0, "dedicated": {"notepad.exe": 3600}},
                 "enabled": False,  # Disabled
-                "check_interval": 30
-            }
+                "check_interval": 30,
+            },
         },
         {
             "name": "No apps configured",
             "config": {
-                "apps": {},  # No apps
+                "time_limits": {"overall": 0, "dedicated": {}},  # No apps
                 "enabled": True,
-                "check_interval": 30
-            }
+                "check_interval": 30,
+            },
         },
         {
             "name": "Both disabled and no apps",
             "config": {
-                "apps": {},
+                "time_limits": {"overall": 0, "dedicated": {}},
                 "enabled": False,
-                "check_interval": 30
-            }
+                "check_interval": 30,
+            },
         }
     ]
     
     for case in test_cases:
         config = case["config"]
-        should_start = config.get("enabled", False) and bool(config.get("apps", {}))
+        should_start = config.get("enabled", False) and bool(config.get("time_limits", {}).get("dedicated"))
         
         print(f"Case: {case['name']}")
         print(f"  Enabled: {config.get('enabled', False)}")
-        print(f"  Has apps: {bool(config.get('apps', {}))}")
+        print(f"  Has apps: {bool(config.get('time_limits', {}).get('dedicated'))}")
         print(f"  Should start monitoring: {should_start}")
         
         if should_start:

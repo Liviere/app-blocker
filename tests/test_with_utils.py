@@ -37,7 +37,7 @@ class TestWithIsolatedUtils(unittest.TestCase):
         with isolated_config(test_config, test_log) as manager:
             # Test config operations
             config = manager.get_config()
-            self.assertEqual(config["apps"]["notepad.exe"], 45)
+            self.assertEqual(config["time_limits"]["dedicated"]["notepad.exe"], 45)
             self.assertEqual(config["check_interval"], 15)
             self.assertTrue(config["enabled"])
 
@@ -64,7 +64,7 @@ class TestWithIsolatedUtils(unittest.TestCase):
             log = manager.get_log()
 
             # Should have default values
-            self.assertEqual(config["apps"], {})
+            self.assertEqual(config["time_limits"], {"overall": 0, "dedicated": {}})
             self.assertEqual(config["check_interval"], 30)
             self.assertFalse(config["enabled"])
             self.assertEqual(log, {})
@@ -78,14 +78,17 @@ class TestWithIsolatedUtils(unittest.TestCase):
         # Perform isolated operations
         with isolated_config() as manager:
             manager.update_config(
-                {"apps": {"test_isolation.exe": 999}, "enabled": True}
+                {
+                    "time_limits": {"overall": 0, "dedicated": {"test_isolation.exe": 999}},
+                    "enabled": True,
+                }
             )
 
             manager.update_log({"test_date": {"test_app": 123456}})
 
             # Verify our test changes work
             config = manager.get_config()
-            self.assertEqual(config["apps"]["test_isolation.exe"], 999)
+            self.assertEqual(config["time_limits"]["dedicated"]["test_isolation.exe"], 999)
 
         # Check final state - should be same as initial
         final_state = verify_real_files_unchanged()
@@ -103,11 +106,11 @@ class TestWithIsolatedUtils(unittest.TestCase):
                 config2 = manager2.get_config()
 
                 # Should be different
-                self.assertIn("app1.exe", config1["apps"])
-                self.assertNotIn("app1.exe", config2["apps"])
+                self.assertIn("app1.exe", config1["time_limits"]["dedicated"])
+                self.assertNotIn("app1.exe", config2["time_limits"]["dedicated"])
 
-                self.assertIn("app2.exe", config2["apps"])
-                self.assertNotIn("app2.exe", config1["apps"])
+                self.assertIn("app2.exe", config2["time_limits"]["dedicated"])
+                self.assertNotIn("app2.exe", config1["time_limits"]["dedicated"])
 
 
 if __name__ == "__main__":

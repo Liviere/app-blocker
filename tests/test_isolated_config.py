@@ -25,7 +25,10 @@ class TestAppBlockerWithIsolatedConfig(unittest.TestCase):
 
         # Create test configuration
         self.test_config = {
-            "apps": {"notepad.exe": 30, "calculator.exe": 60},
+            "time_limits": {
+                "overall": 0,
+                "dedicated": {"notepad.exe": 30, "calculator.exe": 60},
+            },
             "check_interval": 5,
             "enabled": True,
         }
@@ -57,16 +60,16 @@ class TestAppBlockerWithIsolatedConfig(unittest.TestCase):
             loaded_config = json.load(f)
 
         # Verify it matches our test data
-        self.assertEqual(loaded_config["apps"]["notepad.exe"], 30)
-        self.assertEqual(loaded_config["apps"]["calculator.exe"], 60)
+        self.assertEqual(loaded_config["time_limits"]["dedicated"]["notepad.exe"], 30)
+        self.assertEqual(loaded_config["time_limits"]["dedicated"]["calculator.exe"], 60)
         self.assertEqual(loaded_config["check_interval"], 5)
         self.assertTrue(loaded_config["enabled"])
 
     def test_config_modification_isolation(self):
         """Test that modifying test config doesn't affect real config"""
         # Modify test config
-        modified_config = self.test_config.copy()
-        modified_config["apps"]["test_app.exe"] = 999
+        modified_config = json.loads(json.dumps(self.test_config))
+        modified_config["time_limits"]["dedicated"]["test_app.exe"] = 999
 
         with open(self.test_config_path, "w") as f:
             json.dump(modified_config, f, indent=2)
@@ -75,7 +78,7 @@ class TestAppBlockerWithIsolatedConfig(unittest.TestCase):
         with open(self.test_config_path, "r") as f:
             loaded_config = json.load(f)
 
-        self.assertEqual(loaded_config["apps"]["test_app.exe"], 999)
+        self.assertEqual(loaded_config["time_limits"]["dedicated"]["test_app.exe"], 999)
 
         # Verify real config file (if it exists) is not affected
         real_config_path = main.get_app_directory() / "config.json"
@@ -84,7 +87,9 @@ class TestAppBlockerWithIsolatedConfig(unittest.TestCase):
                 real_config = json.load(f)
 
             # Real config should not contain our test app
-            self.assertNotIn("test_app.exe", real_config.get("apps", {}))
+            self.assertNotIn(
+                "test_app.exe", real_config.get("time_limits", {}).get("dedicated", {})
+            )
 
     def test_log_file_isolation(self):
         """Test that test logs don't interfere with real logs"""
@@ -143,7 +148,7 @@ class TestConfigValidation(unittest.TestCase):
         incomplete_config_path = Path(self.test_dir) / "incomplete_config.json"
 
         # Create config missing required keys
-        incomplete_config = {"apps": {}}  # Missing check_interval and enabled
+        incomplete_config = {"time_limits": {"overall": 0, "dedicated": {}}}
 
         with open(incomplete_config_path, "w") as f:
             json.dump(incomplete_config, f)

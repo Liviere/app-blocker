@@ -29,7 +29,7 @@ class ConfigManager:
         # Default test config
         if config_data is None:
             config_data = {
-                "apps": {},
+                "time_limits": {"overall": 0, "dedicated": {}},
                 "check_interval": 30,
                 "enabled": False,
                 "autostart": False,
@@ -112,7 +112,7 @@ def create_test_config(apps=None, check_interval=30, enabled=False):
         apps = {}
 
     return {
-        "apps": apps,
+        "time_limits": {"overall": 0, "dedicated": apps},
         "check_interval": check_interval,
         "enabled": enabled,
         "boot_start_window_seconds": 300,

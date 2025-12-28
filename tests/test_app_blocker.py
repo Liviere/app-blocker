@@ -23,7 +23,10 @@ class TestAppBlockerCore(unittest.TestCase):
         """Set up test environment with temporary directory"""
         self.test_dir = tempfile.mkdtemp()
         self.test_config = {
-            "apps": {"notepad.exe": 60, "chrome.exe": 120},
+            "time_limits": {
+                "overall": 0,
+                "dedicated": {"notepad.exe": 60, "chrome.exe": 120},
+            },
             "check_interval": 30,
             "enabled": True,
         }
@@ -65,7 +68,7 @@ class TestAppBlockerCore(unittest.TestCase):
         with open(self.config_path, "r") as f:
             config = json.load(f)
 
-        self.assertEqual(config["apps"], self.test_config["apps"])
+        self.assertEqual(config["time_limits"], self.test_config["time_limits"])
         self.assertEqual(config["check_interval"], 30)
         self.assertTrue(config["enabled"])
 
@@ -90,7 +93,11 @@ class TestAppBlockerGUI(unittest.TestCase):
     def setUp(self):
         """Set up test environment with temporary directory"""
         self.test_dir = tempfile.mkdtemp()
-        self.test_config = {"apps": {}, "check_interval": 30, "enabled": False}
+        self.test_config = {
+            "time_limits": {"overall": 0, "dedicated": {}},
+            "check_interval": 30,
+            "enabled": False,
+        }
 
         # Create test config file
         self.config_path = Path(self.test_dir) / "config.json"
@@ -125,7 +132,7 @@ class TestAppBlockerGUI(unittest.TestCase):
 
             self.assertEqual(config["check_interval"], 30)
             self.assertFalse(config["enabled"])
-            self.assertEqual(config["apps"], {})
+            self.assertEqual(config["time_limits"], {"overall": 0, "dedicated": {}})
 
 
 class TestConfigIsolation(unittest.TestCase):

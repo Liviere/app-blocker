@@ -35,11 +35,11 @@ def test_minimized_startup():
         # Create test config
         import json
         test_config = {
-            "apps": {},
+            "time_limits": {"overall": 0, "dedicated": {}},
             "check_interval": 30,
             "enabled": False,
             "autostart": False,
-            "minimize_to_tray": True
+            "minimize_to_tray": True,
         }
         
         with open(config_path, 'w') as f:

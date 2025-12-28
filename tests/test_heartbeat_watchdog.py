@@ -17,7 +17,7 @@ class TestMonitorHeartbeat(unittest.TestCase):
         self.heartbeat_path = self.tmp / "monitor_heartbeat.json"
 
         config = {
-            "apps": {"notepad.exe": 2},
+            "time_limits": {"overall": 0, "dedicated": {"notepad.exe": 2}},
             "check_interval": 1,
             "enabled": True,
             "event_log_enabled": False,

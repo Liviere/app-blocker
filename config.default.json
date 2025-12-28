@@ -1,5 +1,5 @@
 {
-	"apps": {},
+	"apps": {"overall": 0, "dedicated": {}},
 	"check_interval": 30,
 	"enabled": false,
 	"autostart": false,
