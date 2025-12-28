@@ -1,6 +1,14 @@
 """
-System tray functionality for App Blocker
-Provides system tray icon with context menu
+System tray functionality for App Blocker.
+
+This module provides system tray icon with context menu.
+It integrates with StateManager to automatically update
+menu state when application state changes.
+
+WHY THIS EXISTS:
+- Users need quick access to monitoring controls without opening GUI
+- Tray icon provides visual indication of monitoring status
+- Menu items reflect current state (enabled/disabled based on protected mode)
 """
 
 import pystray
@@ -12,13 +20,22 @@ from pathlib import Path
 
 
 class SystemTrayManager:
-    """Manages system tray icon and functionality"""
+    """
+    Manages system tray icon and functionality.
+    
+    WHY: Provides background access to app controls.
+    Now integrates with StateManager for automatic state updates.
+    """
     
     def __init__(self, gui_app):
         self.gui_app = gui_app
         self.icon = None
         self.tray_thread = None
         self.is_running = False
+        
+        # Cache state to detect changes and reduce unnecessary updates
+        self._cached_is_monitoring = False
+        self._cached_is_protected = False
         
     def create_icon_image(self, color="blue"):
         """Create a simple icon image for the tray"""
@@ -86,13 +103,21 @@ class SystemTrayManager:
             self.gui_app.root.destroy()
     
     def get_menu_items(self):
-        """Create context menu items"""
-        monitoring_text = "Stop Monitoring" if self.gui_app.is_monitoring else "Start Monitoring"
+        """
+        Create context menu items with current state.
         
-        # Check if protected mode is active
-        is_protected = False
-        if hasattr(self.gui_app, '_is_protected_mode_active'):
-            is_protected = self.gui_app._is_protected_mode_active()
+        WHY: Menu items reflect current monitoring and protected mode state.
+        Called whenever menu needs to be updated.
+        """
+        # Get current state
+        is_monitoring = self.gui_app.state_manager.is_monitoring
+        is_protected = self.gui_app.state_manager.is_protected_mode
+        
+        # Update cache
+        self._cached_is_monitoring = is_monitoring
+        self._cached_is_protected = is_protected
+        
+        monitoring_text = "Stop Monitoring" if is_monitoring else "Start Monitoring"
         
         # Disable monitoring toggle and quit during protected mode
         return (
@@ -103,15 +128,42 @@ class SystemTrayManager:
         )
     
     def update_menu(self):
-        """Update the tray menu (called when monitoring state changes)"""
-        if self.icon:
+        """
+        Update the tray menu.
+        
+        WHY: Called when state changes to ensure menu reflects current state.
+        Now checks if update is actually needed to reduce flickering.
+        """
+        if not self.icon:
+            return
+        
+        # Get current state
+        is_monitoring = self.gui_app.state_manager.is_monitoring
+        is_protected = self.gui_app.state_manager.is_protected_mode
+        
+        # Only update if state actually changed
+        if (is_monitoring != self._cached_is_monitoring or 
+            is_protected != self._cached_is_protected):
             self.icon.menu = pystray.Menu(*self.get_menu_items())
     
     def update_icon_color(self):
-        """Update icon color based on monitoring state"""
-        if self.icon:
-            color = "green" if self.gui_app.is_monitoring else "blue"
-            self.icon.icon = self.create_icon_image(color)
+        """
+        Update icon color based on monitoring state.
+        
+        WHY: Provides visual feedback - green when monitoring, blue when idle.
+        """
+        if not self.icon:
+            return
+        
+        # Get current state from state_manager if available
+        is_monitoring = False
+        if hasattr(self.gui_app, 'state_manager') and self.gui_app.state_manager:
+            is_monitoring = self.gui_app.state_manager.is_monitoring
+        else:
+            is_monitoring = self.gui_app.is_monitoring
+        
+        color = "green" if is_monitoring else "blue"
+        self.icon.icon = self.create_icon_image(color)
     
     def start_tray(self):
         """Start the system tray icon"""

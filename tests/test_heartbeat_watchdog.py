@@ -68,6 +68,19 @@ class DummyProcess:
         return None if self._alive else 1
 
 
+class MockStateManager:
+    """Mock StateManager for testing."""
+    def __init__(self):
+        self._is_monitoring = False
+    
+    @property
+    def is_monitoring(self):
+        return self._is_monitoring
+    
+    def set_monitoring(self, value, notify=True):
+        self._is_monitoring = value
+
+
 class TestWatchdogLogic(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -89,7 +102,9 @@ class TestWatchdogLogic(unittest.TestCase):
         stub.logger = None
         stub.monitoring_process = DummyProcess(alive=True)
         stub.heartbeat_path = self.tmp / "hb.json"
-        stub.is_monitoring = True
+        # Use mock state_manager since is_monitoring is now a property
+        stub.state_manager = MockStateManager()
+        stub.state_manager.set_monitoring(True)
         stub._watchdog_restart_running = False
         stub._watchdog_grace_deadline = None
         with open(stub.heartbeat_path, "w") as f:

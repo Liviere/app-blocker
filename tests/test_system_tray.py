@@ -16,6 +16,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from system_tray import SystemTrayManager, is_tray_supported
 
 
+class MockStateManager:
+    """Mock StateManager for testing"""
+    def __init__(self):
+        self.is_monitoring = False
+        self.is_protected_mode = False
+
+
 class MockGUIApp:
     """Mock GUI application for testing"""
     
@@ -23,12 +30,17 @@ class MockGUIApp:
         self.app_dir = Path(tempfile.mkdtemp())
         self.is_monitoring = False
         self.root = MagicMock()
+        # Add mock state_manager since system_tray now depends on it
+        self.state_manager = MockStateManager()
     
     def toggle_monitoring(self):
         self.is_monitoring = not self.is_monitoring
+        # Also update state_manager to keep in sync
+        self.state_manager.is_monitoring = self.is_monitoring
     
     def stop_monitoring(self):
         self.is_monitoring = False
+        self.state_manager.is_monitoring = False
 
 
 class TestSystemTrayManager:
@@ -115,7 +127,7 @@ class TestSystemTrayManager:
 
     def test_get_menu_items_monitoring_stopped(self):
         """Test menu items when monitoring is stopped"""
-        self.mock_app.is_monitoring = False
+        self.mock_app.state_manager.is_monitoring = False
         
         with patch('system_tray.pystray') as mock_pystray:
             mock_pystray.MenuItem = MagicMock()
@@ -128,7 +140,7 @@ class TestSystemTrayManager:
 
     def test_get_menu_items_monitoring_active(self):
         """Test menu items when monitoring is active"""
-        self.mock_app.is_monitoring = True
+        self.mock_app.state_manager.is_monitoring = True
         
         with patch('system_tray.pystray') as mock_pystray:
             mock_pystray.MenuItem = MagicMock()
@@ -193,9 +205,16 @@ class TestSystemTrayManager:
         self.tray_manager.stop_tray()
 
     def test_update_menu(self):
-        """Test updating tray menu"""
+        """Test updating tray menu when state changes"""
         mock_icon = MagicMock()
         self.tray_manager.icon = mock_icon
+        
+        # Set initial cached state to different values to trigger update
+        self.tray_manager._cached_is_monitoring = False
+        self.tray_manager._cached_is_protected = False
+        
+        # Set current state to different value
+        self.mock_app.state_manager.is_monitoring = True  # Different from cached
         
         with patch.object(self.tray_manager, 'get_menu_items', return_value=[]) as mock_get_items:
             with patch('system_tray.pystray') as mock_pystray:
@@ -205,12 +224,31 @@ class TestSystemTrayManager:
                 
                 mock_get_items.assert_called_once()
                 mock_pystray.Menu.assert_called_once()
+    
+    def test_update_menu_no_change(self):
+        """Test that menu is not updated when state hasn't changed"""
+        mock_icon = MagicMock()
+        self.tray_manager.icon = mock_icon
+        
+        # Set cached state same as current state
+        self.tray_manager._cached_is_monitoring = False
+        self.tray_manager._cached_is_protected = False
+        self.mock_app.state_manager.is_monitoring = False
+        
+        with patch.object(self.tray_manager, 'get_menu_items', return_value=[]) as mock_get_items:
+            with patch('system_tray.pystray') as mock_pystray:
+                mock_pystray.Menu.return_value = MagicMock()
+                
+                self.tray_manager.update_menu()
+                
+                # Should not be called because state hasn't changed
+                mock_get_items.assert_not_called()
 
     def test_update_icon_color_monitoring(self):
         """Test updating icon color when monitoring"""
         mock_icon = MagicMock()
         self.tray_manager.icon = mock_icon
-        self.mock_app.is_monitoring = True
+        self.mock_app.state_manager.is_monitoring = True
         
         with patch.object(self.tray_manager, 'create_icon_image') as mock_create:
             self.tray_manager.update_icon_color()
@@ -220,7 +258,7 @@ class TestSystemTrayManager:
         """Test updating icon color when not monitoring"""
         mock_icon = MagicMock()
         self.tray_manager.icon = mock_icon
-        self.mock_app.is_monitoring = False
+        self.mock_app.state_manager.is_monitoring = False
         
         with patch.object(self.tray_manager, 'create_icon_image') as mock_create:
             self.tray_manager.update_icon_color()

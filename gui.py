@@ -18,6 +18,7 @@ from security_manager import (
     check_crypto_available,
     get_min_password_length,
 )
+from state_manager import StateEvent, create_state_manager
 
 
 # === Password setup dialog ===
@@ -526,6 +527,22 @@ class ProtectedModeDialog:
 
 
 class AppBlockerGUI:
+    """
+    Main GUI application for App Blocker.
+    
+    Note: is_monitoring property delegates to state_manager for single source of truth.
+    """
+    
+    # === Property delegates to state_manager ===
+    # Avoids duplicating state between gui and state_manager.
+    
+    @property
+    def is_monitoring(self) -> bool:
+        """Get monitoring state from state manager."""
+        if hasattr(self, 'state_manager') and self.state_manager:
+            return self.state_manager.is_monitoring
+        return False
+    
     def __init__(self, root, single_instance_lock=None, security_manager=None):
         self.root = root
         self.root.title("App Blocker - Manager")
@@ -558,7 +575,7 @@ class AppBlockerGUI:
             self.tray_enabled = True
 
         self.monitoring_process = None
-        self.is_monitoring = False
+        # Note: is_monitoring is now a property delegating to state_manager
         self._watchdog_restart_running = False
         self._watchdog_grace_deadline = None
         self.log_viewer_window = None
@@ -568,6 +585,11 @@ class AppBlockerGUI:
         self._wndproc_ref = None
         self._console_ctrl_handler = None
         self._current_session_state = None
+        
+        # === State manager initialization ===
+        # Centralized state management with observer pattern.
+        self.state_manager = create_state_manager(self.app_dir, security_manager)
+        self._register_state_listeners()
 
         self.load_config()
         self.logger = get_logger(
@@ -589,8 +611,94 @@ class AppBlockerGUI:
 
         # Restore monitoring state if it was enabled
         self.restore_monitoring_state()
+        
+        # Start periodic state synchronization timer
+        self._start_state_sync_timer()
+        
         if sys.platform == "win32":
             self._install_console_shutdown_handler()
+
+    def _register_state_listeners(self):
+        """
+        Register callbacks for state change events.
+        
+        WHY: Allows automatic UI updates when state changes
+        from any source (tray, monitor process, protected mode expiry).
+        """
+        self.state_manager.add_listener(
+            StateEvent.MONITORING_CHANGED, self._on_monitoring_state_changed
+        )
+        self.state_manager.add_listener(
+            StateEvent.PROTECTED_MODE_CHANGED, self._on_protected_mode_changed
+        )
+    
+    def _on_monitoring_state_changed(self, event: StateEvent, state_data: dict):
+        """
+        Handle monitoring state change event.
+        
+        WHY: Update tray menu when monitoring state changes from any source.
+        """
+        # Update tray menu and icon on monitoring state change
+        if self.tray_manager and self.tray_manager.is_running:
+            # Schedule update on main thread (called from state_manager)
+            self.root.after(0, self._update_tray_state)
+    
+    def _on_protected_mode_changed(self, event: StateEvent, state_data: dict):
+        """
+        Handle protected mode state change event.
+        
+        WHY: Update tray menu and UI when protected mode changes.
+        Tray buttons need to be disabled/enabled based on protected mode.
+        """
+        # Schedule updates on main thread
+        self.root.after(0, self._update_tray_state)
+        self.root.after(0, self._update_protected_mode_status)
+        
+        is_protected = state_data.get("is_protected_mode", False)
+        if is_protected:
+            self.root.after(100, self._enforce_protected_mode_ui)
+        else:
+            self.root.after(0, self._disable_protected_mode_ui)
+    
+    def _update_tray_state(self):
+        """
+        Update system tray menu and icon.
+        
+        WHY: Called when any state changes to ensure tray reflects current state.
+        """
+        if self.tray_manager and self.tray_manager.is_running:
+            self.tray_manager.update_menu()
+            self.tray_manager.update_icon_color()
+    
+    def _start_state_sync_timer(self):
+        """
+        Start periodic timer to synchronize state.
+        
+        WHY: Ensures state stays synchronized even if events are missed.
+        Checks for protected mode expiry, heartbeat freshness, etc.
+        """
+        self._do_state_sync()
+    
+    def _do_state_sync(self):
+        """
+        Perform periodic state synchronization.
+        
+        WHY: Acts as safety net to catch any state drift.
+        Runs every few seconds to keep UI in sync with reality.
+        """
+        try:
+            # Sync protected mode state (may have expired)
+            self.state_manager.sync_protected_mode_state()
+            
+            # Update tray periodically to catch any missed updates
+            if self.tray_manager and self.tray_manager.is_running:
+                self.tray_manager.update_menu()
+        except Exception as e:
+            if self.logger:
+                self.logger.warning("State sync error: %s", e)
+        
+        # Schedule next sync (every 5 seconds)
+        self.root.after(5000, self._do_state_sync)
 
     def get_app_directory(self):
         """Get application directory - works with both development and PyInstaller"""
@@ -1182,12 +1290,21 @@ class AppBlockerGUI:
         return self.security_manager.is_protected_mode_active()
 
     def _update_protected_mode_status(self):
-        """Update protected mode status label."""
+        """
+        Update protected mode status label and sync with state manager.
+        
+        WHY: Keeps UI and state manager in sync for protected mode status.
+        """
         if not hasattr(self, 'protected_status_label'):
             return
         
-        if self._is_protected_mode_active():
-            expiry = self.security_manager.get_protected_mode_expiry()
+        is_active = self._is_protected_mode_active()
+        expiry = self.security_manager.get_protected_mode_expiry() if self.security_manager else None
+        
+        # Sync with state manager
+        self.state_manager.set_protected_mode(is_active, expiry)
+        
+        if is_active:
             if expiry:
                 remaining = expiry - datetime.now(UTC)
                 days = remaining.days
@@ -1555,7 +1672,7 @@ class AppBlockerGUI:
                     ),
                 )
 
-            self.is_monitoring = True
+            self.state_manager.set_monitoring(True)
             self.config["enabled"] = True
             self.save_config()
             self.update_status()
@@ -1582,7 +1699,7 @@ class AppBlockerGUI:
         """Stop monitoring and update configuration"""
         self._terminate_monitoring_process()
 
-        self.is_monitoring = False
+        self.state_manager.set_monitoring(False)
         self.config["enabled"] = False
         self.save_config()
         self.update_status()
@@ -1603,6 +1720,7 @@ class AppBlockerGUI:
             self.monitoring_process = None
 
     def update_status(self):
+        """Update UI status display based on state manager."""
         if self.is_monitoring:
             self.status_label.config(text="🟢 MONITORING ACTIVE", foreground="green")
             self.toggle_btn.config(text="Stop Monitoring")
@@ -1670,9 +1788,29 @@ class AppBlockerGUI:
                     self.tray_var.set(False)
 
     def restore_monitoring_state(self):
-        """Restore monitoring state from config on startup"""
+        """
+        Restore monitoring state from config on startup.
+        
+        WHY: On startup, we need to determine if monitoring should be active.
+        This method now uses StateManager to detect actual running monitor
+        process (e.g., started by autostart) vs just reading config flag.
+        """
         if self.logger:
             self.logger.info("Restoring monitoring state from config...")
+        
+        # First check if monitor is actually already running (e.g., from autostart)
+        actual_monitoring = self.state_manager.detect_actual_monitoring_state()
+        existing_pid = self.state_manager.get_running_monitor_pid()
+        
+        if actual_monitoring and existing_pid:
+            # Monitor is already running - attach to it instead of starting new
+            if self.logger:
+                self.logger.info("Monitor already running (PID=%s); attaching to existing process", existing_pid)
+            self.state_manager.set_monitoring(True)
+            self.update_status()
+            self.refresh_timer()
+            return
+        
         if self.config.get("enabled", False):
             # Only restore if there are apps to monitor
             if self.config.get("time_limits", {}).get("dedicated"):
@@ -1696,10 +1834,9 @@ class AppBlockerGUI:
                 # If no apps configured, disable monitoring state
                 self.config["enabled"] = False
                 self.save_config()
-
-
         else:
-            print("Monitoring was not enabled in previous session, skipping restore")
+            if self.logger:
+                self.logger.info("Monitoring was not enabled in previous session, skipping restore")
 
     def _read_heartbeat(self):
         try:
@@ -1771,7 +1908,7 @@ class AppBlockerGUI:
                     self.logger.info("Watchdog attempting to restart monitor")
                 self._watchdog_restart_running = True
                 self._terminate_monitoring_process()
-                self.is_monitoring = False
+                self.state_manager.set_monitoring(False, notify=False)
                 self.start_monitoring()
                 return
             except Exception as e:
