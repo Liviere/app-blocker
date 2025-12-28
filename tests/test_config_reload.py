@@ -3,14 +3,12 @@ Tests for configuration hot-reload during monitoring
 """
 import unittest
 import sys
-import os
 import tempfile
 import json
 import time
-import threading
 from pathlib import Path
-from datetime import datetime
-from unittest.mock import patch, Mock, MagicMock
+from datetime import datetime, UTC
+from unittest.mock import patch, Mock
 
 # Add parent directory to path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -297,6 +295,38 @@ class TestConfigurationReload(unittest.TestCase):
 
         killed_apps = {call.args[0] for call in mock_kill.call_args_list}
         self.assertSetEqual(killed_apps, {"app1.exe", "app2.exe"})
+
+    def test_pending_updates_are_applied_when_due(self):
+        """Pending time limit updates should apply after their timestamp"""
+        with patch.object(main, "CONFIG_PATH", self.config_path), patch.object(
+            main, "LOG_PATH", self.log_path
+        ), patch.object(main, "PENDING_UPDATES_PATH", Path(self.test_dir) / "pending.json"):
+            # Write base config
+            base_config = {
+                "time_limits": {"overall": 0, "dedicated": {"app1.exe": 10}},
+                "check_interval": 1,
+                "enabled": True,
+            }
+            with open(self.config_path, "w") as f:
+                json.dump(base_config, f, indent=2)
+
+            pending = [
+                {
+                    "type": "set_limit",
+                    "app": "app1.exe",
+                    "limit": 20,
+                    "apply_at": datetime.now(UTC).isoformat(),
+                }
+            ]
+            with open(main.PENDING_UPDATES_PATH, "w") as f:
+                json.dump(pending, f, indent=2)
+
+            config = main._apply_pending_updates(main.load_config())
+            self.assertEqual(config["time_limits"]["dedicated"]["app1.exe"], 20)
+
+            with open(main.PENDING_UPDATES_PATH, "r") as f:
+                remaining = json.load(f)
+            self.assertEqual(remaining, [])
 
 
 if __name__ == "__main__":

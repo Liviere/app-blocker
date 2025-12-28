@@ -1,5 +1,6 @@
 {
-	"apps": {"overall": 0, "dedicated": {}},
+	"time_limits": {"overall": 0, "dedicated": {}},
+	"time_limit_update_delay_hours": 2,
 	"check_interval": 30,
 	"enabled": false,
 	"autostart": false,

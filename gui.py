@@ -31,6 +31,7 @@ class AppBlockerGUI:
         self.app_log_path = self.app_dir / "app_blocker.log"
         self.heartbeat_path = self.app_dir / "monitor_heartbeat.json"
         self.session_state_path = self.app_dir / "gui_session.json"
+        self.pending_updates_path = self.app_dir / "pending_time_limit_updates.json"
 
         # Initialize autostart manager
         self.autostart_manager = AutostartManager()
@@ -170,6 +171,20 @@ class AppBlockerGUI:
             self.config["boot_start_window_seconds"] = 300
             self.save_config()
 
+        if "time_limit_update_delay_hours" not in self.config:
+            self.config["time_limit_update_delay_hours"] = 2
+            self.save_config()
+
+        try:
+            delay_hours = int(self.config.get("time_limit_update_delay_hours", 2))
+        except Exception:
+            delay_hours = 2
+        if delay_hours < 2:
+            delay_hours = 2
+        if self.config["time_limit_update_delay_hours"] != delay_hours:
+            self.config["time_limit_update_delay_hours"] = delay_hours
+            self.save_config()
+
     def _normalize_time_limits(self):
         """Keep time_limits in dedicated/overall shape (legacy apps supported)"""
         limits = self.config.get("time_limits")
@@ -188,6 +203,15 @@ class AppBlockerGUI:
         if "apps" in self.config:
             self.config.pop("apps", None)
 
+        # Enforce minimum delay from config
+        try:
+            delay_hours = int(self.config.get("time_limit_update_delay_hours", 2))
+        except Exception:
+            delay_hours = 2
+        if delay_hours < 2:
+            delay_hours = 2
+        self.config["time_limit_update_delay_hours"] = delay_hours
+
     def _get_overall_minutes(self):
         """Expose overall cap in minutes for settings UI"""
         overall_seconds = self.config.get("time_limits", {}).get("overall", 0)
@@ -195,6 +219,59 @@ class AppBlockerGUI:
             return int(overall_seconds) // 60
         except Exception:
             return 0
+
+    def _load_pending_updates(self):
+        try:
+            with open(self.pending_updates_path, "r") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return data
+        except FileNotFoundError:
+            return []
+        except Exception:
+            return []
+        return []
+
+    def _save_pending_updates(self, updates):
+        try:
+            with open(self.pending_updates_path, "w") as f:
+                json.dump(updates, f, indent=2)
+        except Exception:
+            pass
+
+    def _schedule_time_limit_update(self, update):
+        """Queue a time limit update to apply after configured delay"""
+        try:
+            delay_hours = int(self.config.get("time_limit_update_delay_hours", 2))
+        except Exception:
+            delay_hours = 2
+        if delay_hours < 2:
+            delay_hours = 2
+
+        apply_at = datetime.now(UTC) + timedelta(hours=delay_hours)
+        update["apply_at"] = apply_at.isoformat()
+
+        updates = self._load_pending_updates()
+        updates.append(update)
+        self._save_pending_updates(updates)
+        return apply_at
+
+    def _create_time_limit_delay_field(self, settings_frame, start_row):
+        """Expose time limit update delay input so users can tune deferred application timing."""
+        delay_value = self.config.get("time_limit_update_delay_hours", 2)
+        try:
+            delay_value = int(float(delay_value))
+        except Exception:
+            delay_value = 2
+        self.delay_var = tk.StringVar(value=str(delay_value))
+        ttk.Label(
+            settings_frame,
+            text="Time limit update delay (hours, min 2):",
+        ).grid(row=start_row, column=0, sticky=tk.W, pady=(5, 0))
+        ttk.Entry(settings_frame, textvariable=self.delay_var, width=10).grid(
+            row=start_row, column=1, padx=(10, 0), pady=(5, 0)
+        )
+        return start_row + 1
 
     def save_config(self):
         with open(self.config_path, "w") as f:
@@ -266,9 +343,10 @@ class AppBlockerGUI:
         settings_frame = ttk.LabelFrame(main_frame, text="Settings", padding="10")
         settings_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E))
 
-        # Check interval setting
+        next_row = 0
+
         ttk.Label(settings_frame, text="Check Interval (seconds):").grid(
-            row=0, column=0, sticky=tk.W
+            row=next_row, column=0, sticky=tk.W
         )
         self.interval_var = tk.StringVar(
             value=str(self.config.get("check_interval", 30))
@@ -276,11 +354,11 @@ class AppBlockerGUI:
         interval_entry = ttk.Entry(
             settings_frame, textvariable=self.interval_var, width=10
         )
-        interval_entry.grid(row=0, column=1, padx=(10, 0))
+        interval_entry.grid(row=next_row, column=1, padx=(10, 0))
+        next_row += 1
 
-        # ===: Overall limit UI ===
         ttk.Label(settings_frame, text="Overall Limit (minutes, 0=off):").grid(
-            row=1, column=0, sticky=tk.W, pady=(5, 0)
+            row=next_row, column=0, sticky=tk.W, pady=(5, 0)
         )
         self.overall_limit_var = tk.StringVar(
             value=str(self._get_overall_minutes())
@@ -288,11 +366,14 @@ class AppBlockerGUI:
         overall_entry = ttk.Entry(
             settings_frame, textvariable=self.overall_limit_var, width=10
         )
-        overall_entry.grid(row=1, column=1, padx=(10, 0), pady=(5, 0))
+        overall_entry.grid(row=next_row, column=1, padx=(10, 0), pady=(5, 0))
+        next_row += 1
+
+        next_row = self._create_time_limit_delay_field(settings_frame, next_row)
 
         ttk.Button(
             settings_frame, text="Save Settings", command=self.save_settings
-        ).grid(row=1, column=2, rowspan=2, padx=(10, 0), pady=(0, 0), sticky=tk.N)
+        ).grid(row=0, column=2, rowspan=next_row, padx=(10, 0), pady=(0, 0), sticky=tk.N)
 
         # Autostart setting
         # Sync config with actual registry state
@@ -309,8 +390,10 @@ class AppBlockerGUI:
             command=self.toggle_autostart,
         )
         autostart_checkbox.grid(
-            row=2, column=0, columnspan=3, sticky=tk.W, pady=(10, 0)
+            row=next_row, column=0, columnspan=3, sticky=tk.W, pady=(10, 0)
         )
+
+        next_row += 1
 
         # System tray setting (only if supported)
         if self.tray_enabled:
@@ -323,7 +406,9 @@ class AppBlockerGUI:
                 variable=self.tray_var,
                 command=self.toggle_tray_setting,
             )
-            tray_checkbox.grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=(5, 0))
+            tray_checkbox.grid(
+                row=next_row, column=0, columnspan=3, sticky=tk.W, pady=(5, 0)
+            )
 
         # Configure grid weights
         self.root.columnconfigure(0, weight=1)
@@ -372,9 +457,7 @@ class AppBlockerGUI:
         if result:
             app_name, time_limit = result
             try:
-                self.config["time_limits"]["dedicated"][app_name] = (
-                    time_limit * 60
-                )
+                self.config["time_limits"]["dedicated"][app_name] = time_limit * 60
                 self.save_config()
                 self.refresh_apps_list()
                 print(f"Added application: {app_name} with limit {time_limit} minutes")
@@ -400,15 +483,18 @@ class AppBlockerGUI:
         result = dialog.show()
         if result:
             new_app_name, time_limit = result
-
-            # Remove old entry if name changed
-            if new_app_name != app_name:
-                del self.config["time_limits"]["dedicated"][app_name]
-
-            self.config["time_limits"]["dedicated"][new_app_name] = (
-                time_limit * 60
+            update = {
+                "type": "replace_app" if new_app_name != app_name else "set_limit",
+                "old_app": app_name if new_app_name != app_name else None,
+                "new_app": new_app_name,
+                "app": new_app_name,
+                "limit": time_limit * 60,
+            }
+            apply_at = self._schedule_time_limit_update(update)
+            messagebox.showinfo(
+                "Scheduled",
+                f"Change scheduled for {apply_at.strftime('%Y-%m-%d %H:%M UTC')} (min 2h delay)",
             )
-            self.save_config()
             self.refresh_apps_list()
 
     def remove_app(self):
@@ -421,8 +507,12 @@ class AppBlockerGUI:
         app_name = item["values"][0]
 
         if messagebox.askyesno("Confirm", f"Remove {app_name} from monitoring?"):
-            del self.config["time_limits"]["dedicated"][app_name]
-            self.save_config()
+            update = {"type": "remove_app", "app": app_name}
+            apply_at = self._schedule_time_limit_update(update)
+            messagebox.showinfo(
+                "Scheduled",
+                f"Removal scheduled for {apply_at.strftime('%Y-%m-%d %H:%M UTC')} (min 2h delay)",
+            )
             self.refresh_apps_list()
 
     def save_settings(self):
@@ -431,12 +521,26 @@ class AppBlockerGUI:
             if interval < 5:
                 raise ValueError("Interval must be at least 5 seconds")
 
+            delay_hours = int(self.delay_var.get())
+            if delay_hours < 2:
+                raise ValueError("Time limit update delay must be at least 2 hours")
+
             overall_minutes = int(self.overall_limit_var.get())
             if overall_minutes < 0:
                 raise ValueError("Overall limit cannot be negative")
 
             self.config["check_interval"] = interval
-            self.config["time_limits"]["overall"] = overall_minutes * 60
+            self.config["time_limit_update_delay_hours"] = delay_hours
+            current_overall_minutes = self._get_overall_minutes()
+
+            if overall_minutes != current_overall_minutes:
+                update = {"type": "set_overall", "limit": overall_minutes * 60}
+                apply_at = self._schedule_time_limit_update(update)
+                messagebox.showinfo(
+                    "Scheduled",
+                    f"Overall limit change scheduled for {apply_at.strftime('%Y-%m-%d %H:%M UTC')} (min 2h delay)",
+                )
+
             self.save_config()
             messagebox.showinfo("Success", "Settings saved successfully!")
         except ValueError as e:

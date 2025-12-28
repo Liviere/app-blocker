@@ -25,6 +25,7 @@ APP_DIR = get_app_directory()
 CONFIG_PATH = APP_DIR / "config.json"
 LOG_PATH = APP_DIR / "usage_log.json"
 HEARTBEAT_PATH = APP_DIR / "monitor_heartbeat.json"
+PENDING_UPDATES_PATH = APP_DIR / "pending_time_limit_updates.json"
 
 
 def _normalize_time_limits(config):
@@ -46,6 +47,87 @@ def _normalize_time_limits(config):
     # Drop legacy key to avoid divergence
     if "apps" in config:
         config.pop("apps", None)
+    return config
+
+
+def _load_pending_updates():
+    try:
+        with open(PENDING_UPDATES_PATH, "r") as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                return data
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
+    return []
+
+
+def _save_pending_updates(updates):
+    try:
+        with open(PENDING_UPDATES_PATH, "w") as f:
+            json.dump(updates, f, indent=2)
+    except Exception:
+        pass
+
+
+def _apply_pending_updates(config):
+    """Apply due pending time limit updates to config and persist both files"""
+    updates = _load_pending_updates()
+    if not updates:
+        return config
+
+    now = datetime.now(UTC)
+    due = []
+    future = []
+    for item in updates:
+        try:
+            apply_at = datetime.fromisoformat(item.get("apply_at"))
+        except Exception:
+            # Malformed entries: drop
+            continue
+        if apply_at <= now:
+            due.append(item)
+        else:
+            future.append(item)
+
+    limits = config.get("time_limits", {}) if isinstance(config, dict) else {}
+    dedicated = limits.get("dedicated", {}) if isinstance(limits, dict) else {}
+
+    for item in due:
+        itype = item.get("type")
+        if itype == "set_limit":
+            app = item.get("app")
+            limit = item.get("limit")
+            if app and limit is not None:
+                dedicated[app] = limit
+        elif itype == "set_overall":
+            limit = item.get("limit")
+            if limit is not None:
+                limits["overall"] = limit
+        elif itype == "remove_app":
+            app = item.get("app")
+            if app and app in dedicated:
+                dedicated.pop(app, None)
+        elif itype == "replace_app":
+            old_app = item.get("old_app")
+            new_app = item.get("new_app")
+            limit = item.get("limit")
+            if new_app and limit is not None:
+                if old_app:
+                    dedicated.pop(old_app, None)
+                dedicated[new_app] = limit
+
+    limits["dedicated"] = dedicated
+    config["time_limits"] = limits
+
+    _save_pending_updates(future)
+    try:
+        with open(CONFIG_PATH, "w") as f:
+            json.dump(config, f, indent=2)
+    except Exception:
+        pass
+
     return config
 
 def _log_boot_proximity(logger, component, threshold):
@@ -129,7 +211,7 @@ def kill_app(app_name, logger=None):
 
 def monitor():
     """Main monitoring function"""
-    config = load_config()
+    config = _apply_pending_updates(load_config())
     if config is None:
         sys.exit(1)
 
@@ -172,7 +254,7 @@ def monitor():
             # This allows users to modify time limits, add/remove apps, or change
             # settings without restarting monitoring. The performance impact is
             # negligible (loading a small JSON file every 30+ seconds).
-            config = load_config()
+            config = _apply_pending_updates(load_config())
             if config is None:
                 logger.error("Config file missing; stopping monitoring")
                 break
@@ -220,7 +302,7 @@ def monitor():
                     if usage_log[current_day][app] >= limit:
                         kill_app(app, logger)
 
-            # === CHECKPOINT 1: overall usage enforcement ===
+            # === Overall usage enforcement ===
             if overall_limit and overall_limit > 0:
                 total_used = sum(usage_log[current_day].get(app, 0) for app in apps)
                 remaining_overall = overall_limit - total_used

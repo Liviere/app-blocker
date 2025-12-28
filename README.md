@@ -128,6 +128,7 @@ Configuration is stored in `config.json`:
 - `time_limits`: Monitoring limits container
    - `dedicated`: Dictionary of applications and their daily limits (in minutes)
    - `overall`: Optional global limit (in minutes) across all monitored apps; `0` disables the global cap
+- `time_limit_update_delay_hours`: Delay (hours, minimum 2) before non-additive limit changes take effect; pending updates are stored in `pending_time_limit_updates.json` and applied after the delay
 - `check_interval`: How often to check processes (in seconds)
 - `enabled`: Whether monitoring is active (automatically managed)
 - `autostart`: Enable automatic startup with Windows

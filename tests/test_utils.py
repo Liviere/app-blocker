@@ -18,6 +18,7 @@ class ConfigManager:
         self.config_path = None
         self.log_path = None
         self.heartbeat_path = None
+        self.pending_updates_path = None
 
     def setup(self, config_data=None, log_data=None):
         """Set up isolated test environment"""
@@ -25,6 +26,7 @@ class ConfigManager:
         self.config_path = Path(self.test_dir) / "config.json"
         self.log_path = Path(self.test_dir) / "usage_log.json"
         self.heartbeat_path = Path(self.test_dir) / "monitor_heartbeat.json"
+        self.pending_updates_path = Path(self.test_dir) / "pending_time_limit_updates.json"
 
         # Default test config
         if config_data is None:
@@ -51,6 +53,9 @@ class ConfigManager:
         # Precreate heartbeat file placeholder
         with open(self.heartbeat_path, "w") as f:
             json.dump({}, f, indent=2)
+
+        with open(self.pending_updates_path, "w") as f:
+            json.dump([], f, indent=2)
 
         return self.test_dir
 
@@ -99,7 +104,7 @@ def isolated_config(config_data=None, log_data=None):
             "main.LOG_PATH", manager.log_path
         ), patch("main.HEARTBEAT_PATH", manager.heartbeat_path), patch(
             "main.APP_DIR", Path(manager.test_dir)
-        ):
+        ), patch("main.PENDING_UPDATES_PATH", manager.pending_updates_path):
             yield manager
 
     finally:
