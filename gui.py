@@ -526,6 +526,366 @@ class ProtectedModeDialog:
         return self.result
 
 
+# === Blocked hours validation and dialog classes ===
+# These classes handle UI for configuring blocked time ranges.
+
+
+def validate_time_format(time_str: str) -> bool:
+    """
+    Validate that string is in HH:MM format (24h).
+    
+    WHY: Ensures user input can be parsed correctly by the monitor.
+    """
+    if not time_str:
+        return False
+    parts = time_str.strip().split(":")
+    if len(parts) != 2:
+        return False
+    try:
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        return 0 <= hours <= 23 and 0 <= minutes <= 59
+    except ValueError:
+        return False
+
+
+def time_str_to_minutes(time_str: str) -> int:
+    """
+    Convert 'HH:MM' to minutes since midnight.
+    
+    WHY: Simplifies overlap detection calculations.
+    """
+    parts = time_str.strip().split(":")
+    return int(parts[0]) * 60 + int(parts[1])
+
+
+def ranges_overlap(range1: dict, range2: dict) -> bool:
+    """
+    Check if two time ranges overlap.
+    
+    WHY: We need to prevent users from creating conflicting/overlapping blocked periods.
+    Handles both normal and overnight ranges.
+    """
+    start1 = time_str_to_minutes(range1["start"])
+    end1 = time_str_to_minutes(range1["end"])
+    start2 = time_str_to_minutes(range2["start"])
+    end2 = time_str_to_minutes(range2["end"])
+    
+    # Convert ranges to sets of minutes for overlap detection
+    def get_minutes_set(start: int, end: int) -> set:
+        if start <= end:
+            return set(range(start, end))
+        else:
+            # Overnight range: from start to midnight + from midnight to end
+            return set(range(start, 24 * 60)) | set(range(0, end))
+    
+    set1 = get_minutes_set(start1, end1)
+    set2 = get_minutes_set(start2, end2)
+    
+    return bool(set1 & set2)
+
+
+def validate_blocked_hours(ranges: list, exclude_index: int = -1) -> tuple[bool, str]:
+    """
+    Validate a list of blocked time ranges.
+    
+    WHY: Ensures configuration consistency - no overlaps, valid formats.
+    exclude_index: skip this index when checking overlaps (for editing existing range).
+    Returns (is_valid, error_message).
+    """
+    for i, r in enumerate(ranges):
+        if i == exclude_index:
+            continue
+        if not validate_time_format(r.get("start", "")):
+            return False, f"Invalid start time format in range {i + 1}"
+        if not validate_time_format(r.get("end", "")):
+            return False, f"Invalid end time format in range {i + 1}"
+    
+    # Check for overlaps between all pairs
+    for i in range(len(ranges)):
+        if i == exclude_index:
+            continue
+        for j in range(i + 1, len(ranges)):
+            if j == exclude_index:
+                continue
+            if ranges_overlap(ranges[i], ranges[j]):
+                return False, f"Ranges {i + 1} and {j + 1} overlap"
+    
+    return True, ""
+
+
+class TimeRangeDialog:
+    """
+    Dialog for adding or editing a single blocked time range.
+    
+    WHY: Provides UI for entering start/end times with validation.
+    """
+    
+    def __init__(self, parent, title: str, start: str = "", end: str = ""):
+        self.result = None
+        
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title(title)
+        self.dialog.geometry("300x180")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        
+        # Center dialog
+        self.dialog.geometry(
+            "+%d+%d" % (parent.winfo_rootx() + 50, parent.winfo_rooty() + 50)
+        )
+        
+        # Info label
+        info_text = (
+            "Enter time range in 24h format (HH:MM).\n"
+            "If start > end, range spans midnight."
+        )
+        ttk.Label(self.dialog, text=info_text, justify=tk.CENTER).grid(
+            row=0, column=0, columnspan=2, padx=10, pady=10
+        )
+        
+        # Start time
+        ttk.Label(self.dialog, text="Start time:").grid(
+            row=1, column=0, sticky=tk.W, padx=10, pady=5
+        )
+        self.start_var = tk.StringVar(value=start)
+        self.start_entry = ttk.Entry(self.dialog, textvariable=self.start_var, width=10)
+        self.start_entry.grid(row=1, column=1, padx=10, pady=5, sticky=tk.W)
+        
+        # End time
+        ttk.Label(self.dialog, text="End time:").grid(
+            row=2, column=0, sticky=tk.W, padx=10, pady=5
+        )
+        self.end_var = tk.StringVar(value=end)
+        self.end_entry = ttk.Entry(self.dialog, textvariable=self.end_var, width=10)
+        self.end_entry.grid(row=2, column=1, padx=10, pady=5, sticky=tk.W)
+        
+        # Example label
+        ttk.Label(
+            self.dialog,
+            text="Example: 23:00 to 06:00 (overnight)",
+            foreground="gray"
+        ).grid(row=3, column=0, columnspan=2, padx=10)
+        
+        # Buttons
+        btn_frame = ttk.Frame(self.dialog)
+        btn_frame.grid(row=4, column=0, columnspan=2, pady=15)
+        
+        ttk.Button(btn_frame, text="OK", command=self._on_ok).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Cancel", command=self._on_cancel).pack(side=tk.LEFT, padx=5)
+        
+        self.start_entry.focus_set()
+    
+    def _on_ok(self):
+        start = self.start_var.get().strip()
+        end = self.end_var.get().strip()
+        
+        if not validate_time_format(start):
+            messagebox.showerror("Error", "Invalid start time format. Use HH:MM (24h).")
+            return
+        
+        if not validate_time_format(end):
+            messagebox.showerror("Error", "Invalid end time format. Use HH:MM (24h).")
+            return
+        
+        if start == end:
+            messagebox.showerror("Error", "Start and end time cannot be the same.")
+            return
+        
+        self.result = {"start": start, "end": end}
+        self.dialog.destroy()
+    
+    def _on_cancel(self):
+        self.dialog.destroy()
+    
+    def show(self):
+        """Show dialog and return result."""
+        self.dialog.wait_window()
+        return self.result
+
+
+class BlockedHoursDialog:
+    """
+    Dialog for managing list of blocked time ranges.
+    
+    WHY: Main interface for viewing, adding, editing, and removing blocked hours.
+    """
+    
+    def __init__(self, parent, blocked_hours: list):
+        self.parent = parent
+        self.blocked_hours = [r.copy() for r in blocked_hours]  # Work on a copy
+        self.result = None
+        
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Blocked Hours Configuration")
+        self.dialog.geometry("450x350")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        
+        # Center dialog
+        self.dialog.geometry(
+            "+%d+%d" % (parent.winfo_rootx() + 50, parent.winfo_rooty() + 50)
+        )
+        
+        # Title and info
+        ttk.Label(
+            self.dialog,
+            text="Blocked Hours",
+            font=("Arial", 12, "bold")
+        ).pack(pady=(15, 5))
+        
+        ttk.Label(
+            self.dialog,
+            text="Applications will be closed during these time ranges,\n"
+                 "regardless of time limits.",
+            justify=tk.CENTER
+        ).pack(pady=(0, 10))
+        
+        # List frame
+        list_frame = ttk.Frame(self.dialog)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
+        
+        # Treeview for ranges
+        columns = ("Start", "End", "Type")
+        self.ranges_tree = ttk.Treeview(
+            list_frame, columns=columns, show="headings", height=8
+        )
+        
+        self.ranges_tree.heading("Start", text="Start Time")
+        self.ranges_tree.heading("End", text="End Time")
+        self.ranges_tree.heading("Type", text="Type")
+        
+        self.ranges_tree.column("Start", width=100)
+        self.ranges_tree.column("End", width=100)
+        self.ranges_tree.column("Type", width=120)
+        
+        scrollbar = ttk.Scrollbar(
+            list_frame, orient=tk.VERTICAL, command=self.ranges_tree.yview
+        )
+        self.ranges_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.ranges_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Action buttons
+        action_frame = ttk.Frame(self.dialog)
+        action_frame.pack(pady=10)
+        
+        ttk.Button(action_frame, text="Add", command=self._add_range).pack(
+            side=tk.LEFT, padx=5
+        )
+        ttk.Button(action_frame, text="Edit", command=self._edit_range).pack(
+            side=tk.LEFT, padx=5
+        )
+        ttk.Button(action_frame, text="Remove", command=self._remove_range).pack(
+            side=tk.LEFT, padx=5
+        )
+        
+        # OK/Cancel buttons
+        btn_frame = ttk.Frame(self.dialog)
+        btn_frame.pack(pady=(5, 15))
+        
+        ttk.Button(btn_frame, text="Save", command=self._on_save).pack(
+            side=tk.LEFT, padx=5
+        )
+        ttk.Button(btn_frame, text="Cancel", command=self._on_cancel).pack(
+            side=tk.LEFT, padx=5
+        )
+        
+        self._refresh_list()
+    
+    def _get_range_type(self, start: str, end: str) -> str:
+        """Determine if range is normal or overnight."""
+        start_mins = time_str_to_minutes(start)
+        end_mins = time_str_to_minutes(end)
+        return "Overnight" if start_mins > end_mins else "Same day"
+    
+    def _refresh_list(self):
+        """Refresh the treeview with current ranges."""
+        for item in self.ranges_tree.get_children():
+            self.ranges_tree.delete(item)
+        
+        for i, r in enumerate(self.blocked_hours):
+            range_type = self._get_range_type(r["start"], r["end"])
+            self.ranges_tree.insert("", tk.END, iid=str(i), values=(
+                r["start"], r["end"], range_type
+            ))
+    
+    def _add_range(self):
+        dialog = TimeRangeDialog(self.dialog, "Add Blocked Time Range")
+        result = dialog.show()
+        
+        if result:
+            # Check for overlaps with existing ranges
+            test_list = self.blocked_hours + [result]
+            is_valid, error = validate_blocked_hours(test_list)
+            
+            if not is_valid:
+                messagebox.showerror("Error", f"Cannot add range: {error}")
+                return
+            
+            self.blocked_hours.append(result)
+            self._refresh_list()
+    
+    def _edit_range(self):
+        selection = self.ranges_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a range to edit.")
+            return
+        
+        index = int(selection[0])
+        current = self.blocked_hours[index]
+        
+        dialog = TimeRangeDialog(
+            self.dialog,
+            "Edit Blocked Time Range",
+            start=current["start"],
+            end=current["end"]
+        )
+        result = dialog.show()
+        
+        if result:
+            # Check for overlaps, excluding current range
+            test_list = self.blocked_hours.copy()
+            test_list[index] = result
+            is_valid, error = validate_blocked_hours(test_list)
+            
+            if not is_valid:
+                messagebox.showerror("Error", f"Cannot update range: {error}")
+                return
+            
+            self.blocked_hours[index] = result
+            self._refresh_list()
+    
+    def _remove_range(self):
+        selection = self.ranges_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a range to remove.")
+            return
+        
+        index = int(selection[0])
+        
+        if messagebox.askyesno(
+            "Confirm",
+            f"Remove blocked time range {self.blocked_hours[index]['start']} - "
+            f"{self.blocked_hours[index]['end']}?"
+        ):
+            del self.blocked_hours[index]
+            self._refresh_list()
+    
+    def _on_save(self):
+        self.result = self.blocked_hours
+        self.dialog.destroy()
+    
+    def _on_cancel(self):
+        self.dialog.destroy()
+    
+    def show(self):
+        """Show dialog and return result."""
+        self.dialog.wait_window()
+        return self.result
+
+
 class AppBlockerGUI:
     """
     Main GUI application for App Blocker.
@@ -987,6 +1347,12 @@ class AppBlockerGUI:
         ttk.Button(btn_frame, text="Remove App", command=self.remove_app).pack(
             side=tk.LEFT, padx=(0, 5)
         )
+        
+        # === CHECKPOINT 4: Blocked Hours button in GUI ===
+        # Button to open blocked hours configuration dialog.
+        ttk.Button(
+            btn_frame, text="Blocked Hours", command=self.open_blocked_hours_dialog
+        ).pack(side=tk.LEFT, padx=(15, 0))
 
         # Settings section
         settings_frame = ttk.LabelFrame(main_frame, text="Settings", padding="10")
@@ -1189,6 +1555,30 @@ class AppBlockerGUI:
                 f"Removal scheduled for {apply_at.strftime('%Y-%m-%d %H:%M UTC')} (min 2h delay)",
             )
             self.refresh_apps_list()
+
+    # === CHECKPOINT 5: Blocked hours dialog handler ===
+    # Opens the blocked hours configuration dialog and saves changes.
+    
+    def open_blocked_hours_dialog(self):
+        """Open dialog to configure blocked time ranges."""
+        current_blocked = self.config.get("blocked_hours", [])
+        
+        dialog = BlockedHoursDialog(self.root, current_blocked)
+        result = dialog.show()
+        
+        if result is not None:
+            self.config["blocked_hours"] = result
+            self.save_config()
+            
+            count = len(result)
+            if count == 0:
+                messagebox.showinfo("Blocked Hours", "All blocked time ranges removed.")
+            else:
+                messagebox.showinfo(
+                    "Blocked Hours",
+                    f"Saved {count} blocked time range(s).\n"
+                    "Changes take effect immediately."
+                )
 
     def save_settings(self):
         try:

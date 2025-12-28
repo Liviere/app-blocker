@@ -17,6 +17,7 @@
 - 📝 **Log Viewer** - built-in window for browsing and filtering `app_blocker.log`
 - 🔐 **Master Password** - secure your configuration with a master password
 - 🛡️ **Protected Mode** - lock monitoring settings for a specified period to prevent circumvention
+- 🕐 **Blocked Hours** - define time ranges when apps are always blocked, regardless of time limits
 
 ## 🚀 Requirements
 

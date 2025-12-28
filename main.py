@@ -9,6 +9,80 @@ from logger_utils import get_logger
 from single_instance import ensure_single_instance
 
 
+# === Blocked hours time range checking ===
+# Functions to determine if current time falls within any blocked time range.
+
+
+def parse_time_str(time_str: str) -> tuple[int, int]:
+    """
+    Parse 'HH:MM' string to (hours, minutes) tuple.
+    
+    WHY: We need numeric values for time comparison logic.
+    """
+    parts = time_str.strip().split(":")
+    return int(parts[0]), int(parts[1])
+
+
+def time_to_minutes(hours: int, minutes: int) -> int:
+    """
+    Convert hours and minutes to total minutes since midnight.
+    
+    WHY: Simplifies time comparison - single number instead of two.
+    """
+    return hours * 60 + minutes
+
+
+def is_time_in_range(current_minutes: int, start_minutes: int, end_minutes: int) -> bool:
+    """
+    Check if current time (in minutes) falls within a range.
+    
+    WHY: Handles both normal ranges (09:00-17:00) and overnight ranges (23:00-02:00).
+    Overnight ranges are detected when start > end.
+    """
+    if start_minutes <= end_minutes:
+        # Normal range: e.g., 09:00 to 17:00
+        return start_minutes <= current_minutes < end_minutes
+    else:
+        # Overnight range: e.g., 23:00 to 02:00
+        # Current time is in range if it's >= start OR < end
+        return current_minutes >= start_minutes or current_minutes < end_minutes
+
+
+def is_within_blocked_hours(now: datetime, blocked_hours: list) -> bool:
+    """
+    Check if current datetime falls within any blocked time range.
+    
+    WHY: Main entry point for blocked hours checking in the monitor loop.
+    Returns True if apps should be blocked right now.
+    """
+    if not blocked_hours:
+        return False
+    
+    current_minutes = time_to_minutes(now.hour, now.minute)
+    
+    for time_range in blocked_hours:
+        start_str = time_range.get("start", "")
+        end_str = time_range.get("end", "")
+        
+        if not start_str or not end_str:
+            continue
+        
+        try:
+            start_h, start_m = parse_time_str(start_str)
+            end_h, end_m = parse_time_str(end_str)
+            
+            start_minutes = time_to_minutes(start_h, start_m)
+            end_minutes = time_to_minutes(end_h, end_m)
+            
+            if is_time_in_range(current_minutes, start_minutes, end_minutes):
+                return True
+        except (ValueError, IndexError):
+            # Invalid time format - skip this range
+            continue
+    
+    return False
+
+
 def get_app_directory():
     """Get application directory - works with both development and PyInstaller"""
     if getattr(sys, "frozen", False):
@@ -289,6 +363,26 @@ def monitor():
 
             running = {p.name(): p.pid for p in psutil.process_iter(["pid", "name"])}
 
+            # === Blocked hours enforcement ===
+            # Check if current time falls within any blocked time range.
+            # If so, kill all monitored apps regardless of time limits.
+            blocked_hours = config.get("blocked_hours", [])
+            if is_within_blocked_hours(now, blocked_hours):
+                apps_killed = False
+                for app in apps:
+                    if app in running:
+                        logger.warning("Blocked hours active - closing: %s", app)
+                        kill_app(app, logger)
+                        apps_killed = True
+                if apps_killed:
+                    logger.info("Blocked hours enforcement completed")
+                # Skip normal time limit checks during blocked hours
+                save_log(usage_log)
+                _update_heartbeat("running")
+                time.sleep(interval)
+                continue
+
+            # === Normal time limit enforcement ===
             for app, limit in apps.items():
                 if app in running:
                     usage_log[current_day][app] += interval
