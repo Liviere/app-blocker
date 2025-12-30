@@ -67,10 +67,10 @@
 
    ```bash
    # GUI version
-  poetry run python -m app.gui
+  poetry run python -m launcher_gui
 
   # Command line monitoring
-  poetry run python -m app.main
+  poetry run python -m launcher_main
    ```
 
 ### Alternative Installation
@@ -79,8 +79,8 @@ If you prefer not to use Poetry, you can install dependencies manually:
 
 ```bash
 pip install psutil pystray pillow
-python -m app.gui  # For GUI
-python -m app.main # For monitoring
+python -m launcher_gui  # For GUI
+python -m launcher_main  # For monitoring only
 ```
 
 ## 🎯 Usage
@@ -357,13 +357,13 @@ This will verify:
 
 ```bash
 # Start GUI normally
-poetry run python -m app.gui
+poetry run python -m launcher_gui
 
 # Start GUI minimized to tray (if tray is enabled in config)
-poetry run python -m app.gui --minimized
+poetry run python -m launcher_gui --minimized
 
 # Start monitoring only (background process)
-poetry run python -m app.main
+poetry run python -m launcher_main
 ```
 
 ## 🔧 Troubleshooting

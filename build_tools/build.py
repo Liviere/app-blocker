@@ -52,7 +52,7 @@ def create_pyinstaller_specs():
     main_spec = """# -*- mode: python ; coding: utf-8 -*-
 
 a = Analysis(
-    ['app/main.py'],
+    ['launcher_main.py'],
     pathex=['.'],
     binaries=[],
     datas=[
@@ -95,7 +95,7 @@ exe = EXE(
     gui_spec = """# -*- mode: python ; coding: utf-8 -*-
 
 a = Analysis(
-    ['app/gui.py'],
+    ['launcher_gui.py'],
     pathex=['.'],
     binaries=[],
     datas=[

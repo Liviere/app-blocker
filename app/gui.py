@@ -9,22 +9,24 @@ from datetime import datetime, UTC, timedelta
 from pathlib import Path
 
 import psutil
-from .autostart import AutostartManager
-from .system_tray import SystemTrayManager, is_tray_supported
-from .single_instance import ensure_single_instance
-from .logger_utils import get_logger
-from .security_manager import (
+
+# Try importing as package (standard dev / preserved structure)
+from app.autostart import AutostartManager
+from app.system_tray import SystemTrayManager, is_tray_supported
+from app.single_instance import ensure_single_instance
+from app.logger_utils import get_logger
+from app.security_manager import (
     SecurityManager,
     check_crypto_available,
     get_min_password_length,
 )
-from .state_manager import StateEvent, create_state_manager
-from .notification_manager import validate_warning_thresholds
-from .common import get_app_directory, is_development_mode
-from .config_manager import create_config_manager
+from app.state_manager import StateEvent, create_state_manager
+from app.notification_manager import validate_warning_thresholds
+from app.common import get_app_directory, is_development_mode
+from app.config_manager import create_config_manager
 
 # Import dialog classes from separate module
-from .gui_dialogs import (
+from app.gui_dialogs import (
     MasterPasswordSetupDialog,
     ProtectedModeDialog,
     BlockedHoursDialog,
@@ -32,10 +34,10 @@ from .gui_dialogs import (
 )
 
 # Import log viewer from separate module
-from .gui_log_viewer import LogViewerWindow
+from app.gui_log_viewer import LogViewerWindow
 
 
-# === CHECKPOINT: Main GUI Application ===
+# === Main GUI Application ===
 # Core application class managing the primary window and monitoring control.
 
 
@@ -234,8 +236,13 @@ class AppBlockerGUI:
                 "Could not find monitoring executable (app-blocker.exe or main.exe)"
             )
         else:
-            # Development mode - use Python script
-            main_path = self.app_dir / "main.py"
+            # Development mode - use launcher script in root if available, else app/main.py
+            launcher_path = self.app_dir / "launcher_main.py"
+            if launcher_path.exists():
+                return [sys.executable, str(launcher_path)]
+            
+            # Fallback to app/main.py
+            main_path = self.app_dir / "app" / "main.py"
             return [sys.executable, str(main_path)]
 
     def load_config(self):
@@ -300,6 +307,88 @@ class AppBlockerGUI:
         )
 
         return start_row + 1
+
+    # === CHECKPOINT: Time Limit Helpers ===
+    def _get_overall_minutes(self) -> int:
+        """
+        Return the overall time limit in minutes.
+
+        WHY: The UI works in minutes while the configuration stores
+        values in seconds, so we need a safe conversion layer.
+        """
+        try:
+            limits = self.config.get("time_limits", {}) if isinstance(self.config, dict) else {}
+            overall_seconds = limits.get("overall", 0) or 0
+            return max(0, int(overall_seconds) // 60)
+        except Exception:
+            return 0
+
+    def _apply_time_limit_update_now(self, update: dict) -> None:
+        """
+        Apply a time limit update immediately to in-memory config.
+
+        WHY: Development mode bypasses scheduling so changes are
+        effective right away without pending updates.
+        """
+        limits = self.config.setdefault("time_limits", {"overall": 0, "dedicated": {}})
+        dedicated = limits.setdefault("dedicated", {})
+
+        update_type = update.get("type")
+
+        if update_type == "set_limit":
+            app = update.get("app")
+            limit = update.get("limit")
+            if app and limit is not None:
+                dedicated[app] = int(limit)
+        elif update_type == "set_overall":
+            limit = update.get("limit")
+            if limit is not None:
+                limits["overall"] = int(limit)
+        elif update_type == "remove_app":
+            app = update.get("app")
+            if app:
+                dedicated.pop(app, None)
+        elif update_type == "replace_app":
+            old_app = update.get("old_app")
+            new_app = update.get("new_app")
+            limit = update.get("limit")
+            if old_app:
+                dedicated.pop(old_app, None)
+            if new_app and limit is not None:
+                dedicated[new_app] = int(limit)
+
+        limits["dedicated"] = dedicated
+        self.config["time_limits"] = limits
+
+    def _schedule_time_limit_update(self, update: dict) -> datetime:
+        """
+        Schedule or apply a time limit update depending on environment.
+
+        WHY: In production we defer updates with a grace period, while
+        development mode applies them immediately for fast iteration.
+        """
+        now = datetime.now(UTC)
+        delay_hours = self.config.get("time_limit_update_delay_hours", 2)
+        try:
+            delay_hours = int(delay_hours)
+        except Exception:
+            delay_hours = 2
+        delay_hours = max(2, delay_hours)
+
+        if is_development_mode():
+            self._apply_time_limit_update_now(update)
+            self.save_config()
+            return now
+
+        apply_at = now + timedelta(hours=delay_hours)
+        pending_updates = self.config_manager.load_pending_updates() or []
+
+        update_entry = dict(update)
+        update_entry["apply_at"] = apply_at.isoformat()
+        pending_updates.append(update_entry)
+
+        self.config_manager.save_pending_updates(pending_updates)
+        return apply_at
 
     # === CHECKPOINT: GUI Layout Construction ===
     def create_widgets(self):
@@ -1123,6 +1212,14 @@ class AppBlockerGUI:
 
         try:
             self._log_boot_proximity("Monitor start requested")
+            
+            # Enable monitoring in config BEFORE starting the process
+            # This ensures the monitor process sees enabled=True when it starts
+            self.state_manager.set_monitoring(True)
+            self.config["enabled"] = True
+            self.save_config()
+            self.update_status()
+            
             # Get the correct executable path
             main_cmd = self.get_main_executable()
             print(f"Starting monitoring with command: {main_cmd}")
@@ -1145,11 +1242,6 @@ class AppBlockerGUI:
                     ),
                 )
 
-            self.state_manager.set_monitoring(True)
-            self.config["enabled"] = True
-            self.save_config()
-            self.update_status()
-
             grace_seconds = self._compute_heartbeat_ttl()
             self._watchdog_grace_deadline = datetime.now(UTC) + timedelta(
                 seconds=grace_seconds
@@ -1166,6 +1258,11 @@ class AppBlockerGUI:
             # Start refresh timer
             self.refresh_timer()
         except Exception as e:
+            # Revert state if startup failed
+            self.state_manager.set_monitoring(False)
+            self.config["enabled"] = False
+            self.save_config()
+            self.update_status()
             messagebox.showerror("Error", f"Failed to start monitoring: {e}")
 
     def stop_monitoring(self):

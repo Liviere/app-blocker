@@ -11,7 +11,7 @@ from pathlib import Path
 from .logger_utils import parse_log_line
 
 
-# === CHECKPOINT 1: Log Viewer Window ===
+# === Log Viewer Window ===
 # Standalone window for viewing and filtering application logs.
 
 

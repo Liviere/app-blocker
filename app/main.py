@@ -1,24 +1,24 @@
 import psutil
 import json
+import psutil
+import json
 import time
 import os
 import sys
 from datetime import datetime, UTC
-from pathlib import Path
-from .logger_utils import get_logger
-from .single_instance import ensure_single_instance
-from .notification_manager import (
+
+from app.logger_utils import get_logger
+from app.single_instance import ensure_single_instance
+from app.notification_manager import (
     NotificationManager,
     parse_warning_thresholds,
 )
-from .common import get_app_directory
-from .config_manager import create_config_manager
-from .time_utils import (
+from app.common import get_app_directory
+from app.config_manager import create_config_manager
+from app.time_utils import (
     is_within_blocked_hours,
     get_minutes_until_blocked_hours,
 )
-
-
 
 # Use application directory for config files
 APP_DIR = get_app_directory()

@@ -800,7 +800,7 @@ class BlockedHoursDialog:
         return self.result
 
 
-# === CHECKPOINT 6: App Configuration Dialog ===
+# === App Configuration Dialog ===
 # Entry for application name and time limit.
 
 
