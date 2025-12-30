@@ -1,5 +1,10 @@
 @echo off
 REM App Blocker Build and Distribution Script
+
+set SCRIPT_DIR=%~dp0
+set ROOT_DIR=%SCRIPT_DIR%..
+pushd "%ROOT_DIR%" >nul
+
 echo 🚀 App Blocker Build System
 echo ================================
 
@@ -19,7 +24,7 @@ if exist *.spec del *.spec
 if exist __pycache__ rmdir /s /q __pycache__
 if exist tests\__pycache__ rmdir /s /q tests\__pycache__
 echo ✅ Clean completed
-goto end
+goto :eof
 
 :test
 echo 🧪 Running tests...
@@ -29,27 +34,27 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 echo ✅ Tests passed
-goto end
+goto :eof
 
 :build
 echo 🔨 Building executables...
-poetry run python build.py
+poetry run python build_tools\build.py
 if %errorlevel% neq 0 (
     echo ❌ Build failed
     exit /b 1
 )
 echo ✅ Build completed
-goto end
+goto :eof
 
 :installer
 echo 📦 Creating installer...
-poetry run python setup_installer.py
+poetry run python build_tools\setup_installer.py
 if %errorlevel% neq 0 (
     echo ❌ Installer creation failed
     exit /b 1
 )
 echo ✅ Installer created
-goto end
+goto :eof
 
 :all
 echo 🚀 Running full build process...
@@ -62,7 +67,7 @@ call :installer
 if %errorlevel% neq 0 exit /b 1
 echo 🎉 Full build completed successfully!
 echo 📁 Find your installer at: dist\installer\app-blocker-setup.exe
-goto end
+goto :eof
 
 :help
 echo Available commands:
@@ -75,3 +80,4 @@ echo   make.bat help      - Show this help
 goto end
 
 :end
+popd >nul

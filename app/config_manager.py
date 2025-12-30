@@ -8,7 +8,7 @@ import json
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Dict, Any, List
-from common import get_app_directory, is_development_mode, normalize_time_limits
+from .common import get_app_directory, is_development_mode, normalize_time_limits
 
 
 class ConfigManager:

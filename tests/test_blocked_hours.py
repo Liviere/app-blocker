@@ -10,7 +10,7 @@ from pathlib import Path
 # Add parent directory to path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from time_utils import (
+from app.time_utils import (
     parse_time_str,
     time_to_minutes,
     is_time_in_range,

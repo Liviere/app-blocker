@@ -25,7 +25,7 @@ class AutostartManager:
             return Path(sys.executable).parent
         else:
             # Running as script
-            return Path(__file__).parent
+            return Path(__file__).resolve().parent.parent
     
     def get_gui_executable_path(self, extra_args=None):
         """Get path to GUI executable for autostart"""

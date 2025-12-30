@@ -9,8 +9,8 @@ from unittest.mock import patch
 # Add parent directory to path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import main
-from gui import AppBlockerGUI
+from app import main
+from app.gui import AppBlockerGUI
 
 
 class TestMonitorHeartbeat(unittest.TestCase):
@@ -36,7 +36,7 @@ class TestMonitorHeartbeat(unittest.TestCase):
 
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    @patch("main.psutil.process_iter", return_value=[])
+    @patch("app.main.psutil.process_iter", return_value=[])
     def test_monitor_writes_heartbeat_and_stops(self, _process_iter):
         iteration = {"count": 0}
 

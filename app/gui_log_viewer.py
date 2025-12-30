@@ -8,7 +8,7 @@ import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
 
-from logger_utils import parse_log_line
+from .logger_utils import parse_log_line
 
 
 # === CHECKPOINT 1: Log Viewer Window ===

@@ -11,7 +11,7 @@ from unittest.mock import patch, Mock
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import main
+from app import main
 
 
 class TestAppBlockerWithIsolatedConfig(unittest.TestCase):
@@ -47,8 +47,8 @@ class TestAppBlockerWithIsolatedConfig(unittest.TestCase):
 
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
-    @patch("main.CONFIG_PATH")
-    @patch("main.LOG_PATH")
+    @patch("app.main.CONFIG_PATH")
+    @patch("app.main.LOG_PATH")
     def test_config_loading_isolation(self, mock_log_path, mock_config_path):
         """Test that we can load config from test files without affecting real ones"""
         # Point to our test files

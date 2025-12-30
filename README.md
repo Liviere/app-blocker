@@ -67,10 +67,10 @@
 
    ```bash
    # GUI version
-   poetry run python gui.py
+  poetry run python -m app.gui
 
-   # Command line monitoring
-   poetry run python main.py
+  # Command line monitoring
+  poetry run python -m app.main
    ```
 
 ### Alternative Installation
@@ -79,15 +79,15 @@ If you prefer not to use Poetry, you can install dependencies manually:
 
 ```bash
 pip install psutil pystray pillow
-python gui.py  # For GUI
-python main.py # For monitoring
+python -m app.gui  # For GUI
+python -m app.main # For monitoring
 ```
 
 ## 🎯 Usage
 
 ### Basic Setup
 
-1. **Start the GUI**: `poetry run python gui.py`
+1. **Start the GUI**: `poetry run python -m app.gui`
 2. **Add applications** you want to monitor by clicking "Add App"
 3. **Set time limits** for each application (in minutes)
 4. **Start monitoring** by clicking "Start Monitoring"
@@ -304,13 +304,13 @@ Using the provided batch script:
 
 ```bash
 # Run complete build process (clean, test, build, installer)
-make.bat all
+build_tools\make.bat all
 
 # Or individual steps:
-make.bat clean     # Clean previous builds
-make.bat test      # Run tests
-make.bat build     # Build executables only
-make.bat installer # Create installer only
+build_tools\make.bat clean     # Clean previous builds
+build_tools\make.bat test      # Run tests
+build_tools\make.bat build     # Build executables only
+build_tools\make.bat installer # Create installer only
 ```
 
 ### Distribution Contents
@@ -357,13 +357,13 @@ This will verify:
 
 ```bash
 # Start GUI normally
-poetry run python gui.py
+poetry run python -m app.gui
 
 # Start GUI minimized to tray (if tray is enabled in config)
-poetry run python gui.py --minimized
+poetry run python -m app.gui --minimized
 
 # Start monitoring only (background process)
-poetry run python main.py
+poetry run python -m app.main
 ```
 
 ## 🔧 Troubleshooting

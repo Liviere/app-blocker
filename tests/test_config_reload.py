@@ -13,9 +13,9 @@ from unittest.mock import patch, Mock
 # Add parent directory to path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config_manager import create_config_manager
+from app.config_manager import create_config_manager
 
-import main
+from app import main
 
 
 class TestConfigurationReload(unittest.TestCase):
@@ -46,7 +46,7 @@ class TestConfigurationReload(unittest.TestCase):
 
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
-    @patch("main.kill_app")
+    @patch("app.main.kill_app")
     def test_time_limit_increase_prevents_kill(self, mock_kill):
         """Test that increasing time limit prevents app from being killed"""
         # Patch the paths directly
@@ -84,7 +84,7 @@ class TestConfigurationReload(unittest.TestCase):
                 original_sleep(0.01)  # Short sleep for fast test
 
             with patch("time.sleep", side_effect=custom_sleep), patch(
-                "main.psutil.process_iter", return_value=[mock_process]
+                "app.main.psutil.process_iter", return_value=[mock_process]
             ):
                 try:
                     main.monitor()
@@ -143,7 +143,7 @@ class TestConfigurationReload(unittest.TestCase):
                 return processes[0]
 
             with patch("time.sleep", side_effect=custom_sleep), patch(
-                "main.psutil.process_iter", side_effect=get_processes
+                "app.main.psutil.process_iter", side_effect=get_processes
             ):
                 try:
                     main.monitor()
@@ -198,7 +198,7 @@ class TestConfigurationReload(unittest.TestCase):
                 original_sleep(0.01)
 
             with patch("time.sleep", side_effect=custom_sleep), patch(
-                "main.psutil.process_iter", return_value=[mock_process]
+                "app.main.psutil.process_iter", return_value=[mock_process]
             ):
                 try:
                     main.monitor()
@@ -247,7 +247,7 @@ class TestConfigurationReload(unittest.TestCase):
                 original_sleep(0.01)
 
             with patch("time.sleep", side_effect=custom_sleep), patch(
-                "main.psutil.process_iter", return_value=[mock_process]
+                "app.main.psutil.process_iter", return_value=[mock_process]
             ):
                 try:
                     main.monitor()
@@ -258,7 +258,7 @@ class TestConfigurationReload(unittest.TestCase):
         self.assertLess(iteration_count[0], 10)
         self.assertGreaterEqual(iteration_count[0], 2)
 
-    @patch("main.kill_app")
+    @patch("app.main.kill_app")
     def test_overall_limit_kills_all_monitored_apps(self, mock_kill):
         """Ensure overall limit triggers closing all monitored apps"""
         overall_config = {
@@ -287,7 +287,7 @@ class TestConfigurationReload(unittest.TestCase):
             def stop_after_first_sleep(_duration):
                 raise KeyboardInterrupt()
 
-            with patch("main.psutil.process_iter", return_value=[proc1, proc2]), patch(
+            with patch("app.main.psutil.process_iter", return_value=[proc1, proc2]), patch(
                 "time.sleep", side_effect=stop_after_first_sleep
             ):
                 try:

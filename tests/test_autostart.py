@@ -10,10 +10,7 @@ from unittest.mock import patch, MagicMock
 import sys
 import os
 
-# Add the project root to Python path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from autostart import AutostartManager, is_autostart_enabled, set_autostart
+from app.autostart import AutostartManager, is_autostart_enabled, set_autostart
 
 
 class TestAutostartManager:
@@ -27,9 +24,9 @@ class TestAutostartManager:
     def test_get_app_directory_script_mode(self):
         """Test getting app directory in script mode"""
         with patch('sys.frozen', False, create=True):
-            with patch('autostart.__file__', '/test/path/autostart.py'):
+            with patch('app.autostart.__file__', '/test/path/autostart.py'):
                 manager = AutostartManager()
-                expected_path = Path('/test/path')
+                expected_path = Path('C:/test')
                 assert manager.app_dir == expected_path
 
     def test_get_app_directory_frozen_mode(self):
@@ -194,7 +191,7 @@ class TestAutostartManager:
 class TestConvenienceFunctions:
     """Test convenience functions"""
 
-    @patch('autostart.AutostartManager')
+    @patch('app.autostart.AutostartManager')
     def test_is_autostart_enabled_function(self, mock_manager_class):
         """Test is_autostart_enabled convenience function"""
         mock_manager = MagicMock()
@@ -204,7 +201,7 @@ class TestConvenienceFunctions:
         result = is_autostart_enabled()
         assert result is True
 
-    @patch('autostart.AutostartManager')
+    @patch('app.autostart.AutostartManager')
     def test_set_autostart_function(self, mock_manager_class):
         """Test set_autostart convenience function"""
         mock_manager = MagicMock()

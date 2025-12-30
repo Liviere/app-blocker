@@ -9,12 +9,12 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from notification_manager import (
+from app.notification_manager import (
     NotificationManager,
     parse_warning_thresholds,
     validate_warning_thresholds,
 )
-from time_utils import get_minutes_until_blocked_hours
+from app.time_utils import get_minutes_until_blocked_hours
 
 
 # === Warning threshold parsing tests ===
@@ -130,7 +130,7 @@ class TestNotificationManagerDeduplication:
         manager = NotificationManager(Path("."))
         
         with patch.object(manager, '_play_notification_sound'):
-            with patch('notification_manager.show_notification') as mock_notify:
+            with patch('app.notification_manager.show_notification') as mock_notify:
                 # 4.5 minutes remaining (270 seconds) - triggers 5-minute threshold
                 manager.notify_dedicated_limit("app.exe", 270, [5, 3, 1])
                 assert mock_notify.call_count == 1
@@ -144,7 +144,7 @@ class TestNotificationManagerDeduplication:
         manager = NotificationManager(Path("."))
         
         with patch.object(manager, '_play_notification_sound'):
-            with patch('notification_manager.show_notification') as mock_notify:
+            with patch('app.notification_manager.show_notification') as mock_notify:
                 manager.notify_dedicated_limit("app1.exe", 270, [5, 3, 1])
                 manager.notify_dedicated_limit("app2.exe", 270, [5, 3, 1])
                 
@@ -155,7 +155,7 @@ class TestNotificationManagerDeduplication:
         manager = NotificationManager(Path("."))
         
         with patch.object(manager, '_play_notification_sound'):
-            with patch('notification_manager.show_notification') as mock_notify:
+            with patch('app.notification_manager.show_notification') as mock_notify:
                 manager.notify_dedicated_limit("app.exe", 270, [5, 3, 1])
                 assert mock_notify.call_count == 1
                 
@@ -170,7 +170,7 @@ class TestNotificationManagerDeduplication:
         manager._current_day = "2025-01-01"  # Set to old day
         
         with patch.object(manager, '_play_notification_sound'):
-            with patch('notification_manager.show_notification') as mock_notify:
+            with patch('app.notification_manager.show_notification') as mock_notify:
                 # Should reset and notify because "day changed"
                 manager.notify_dedicated_limit("app.exe", 270, [5, 3, 1])
                 assert mock_notify.call_count == 1
@@ -180,7 +180,7 @@ class TestNotificationManagerDeduplication:
         manager = NotificationManager(Path("."))
         
         with patch.object(manager, '_play_notification_sound'):
-            with patch('notification_manager.show_notification') as mock_notify:
+            with patch('app.notification_manager.show_notification') as mock_notify:
                 # First: 4 minutes remaining - triggers 5-minute threshold
                 manager.notify_dedicated_limit("app.exe", 240, [5, 3, 1])
                 assert mock_notify.call_count == 1
@@ -304,7 +304,7 @@ class TestNotificationTriggering:
         manager = NotificationManager(Path("."))
         
         with patch.object(manager, '_play_notification_sound'):
-            with patch('notification_manager.show_notification') as mock_notify:
+            with patch('app.notification_manager.show_notification') as mock_notify:
                 # 5 minutes remaining (300 seconds) with 5-minute threshold
                 manager.notify_dedicated_limit("app.exe", 300, [5, 3, 1])
                 assert mock_notify.call_count == 1
@@ -314,7 +314,7 @@ class TestNotificationTriggering:
         manager = NotificationManager(Path("."))
         
         with patch.object(manager, '_play_notification_sound'):
-            with patch('notification_manager.show_notification') as mock_notify:
+            with patch('app.notification_manager.show_notification') as mock_notify:
                 # 4 minutes remaining (240 seconds) with 5-minute threshold
                 manager.notify_dedicated_limit("app.exe", 240, [5, 3, 1])
                 assert mock_notify.call_count == 1
@@ -324,7 +324,7 @@ class TestNotificationTriggering:
         manager = NotificationManager(Path("."))
         
         with patch.object(manager, '_play_notification_sound'):
-            with patch('notification_manager.show_notification') as mock_notify:
+            with patch('app.notification_manager.show_notification') as mock_notify:
                 # 10 minutes remaining (600 seconds) with thresholds 5,3,1
                 manager.notify_dedicated_limit("app.exe", 600, [5, 3, 1])
                 assert mock_notify.call_count == 0
@@ -334,7 +334,7 @@ class TestNotificationTriggering:
         manager = NotificationManager(Path("."))
         
         with patch.object(manager, '_play_notification_sound'):
-            with patch('notification_manager.show_notification') as mock_notify:
+            with patch('app.notification_manager.show_notification') as mock_notify:
                 manager.notify_overall_limit(180, [5, 3, 1])
                 assert mock_notify.call_count == 1
                 assert "Overall" in str(mock_notify.call_args)
@@ -344,7 +344,7 @@ class TestNotificationTriggering:
         manager = NotificationManager(Path("."))
         
         with patch.object(manager, '_play_notification_sound'):
-            with patch('notification_manager.show_notification') as mock_notify:
+            with patch('app.notification_manager.show_notification') as mock_notify:
                 manager.notify_blocked_hours_approaching(3, "21:00", [5, 3, 1])
                 assert mock_notify.call_count == 1
                 assert "Blocked" in str(mock_notify.call_args)
@@ -362,7 +362,7 @@ class TestFinalWarning:
         manager = NotificationManager(Path("."))
         
         with patch.object(manager, '_play_notification_sound'):
-            with patch('notification_manager.show_notification') as mock_notify:
+            with patch('app.notification_manager.show_notification') as mock_notify:
                 # 30 seconds remaining - only triggers 1-minute threshold
                 # Use threshold list with only 1-minute warning
                 manager.notify_dedicated_limit("app.exe", 30, [1])
@@ -374,7 +374,7 @@ class TestFinalWarning:
         """Final warning should play final_alarm sound."""
         manager = NotificationManager(Path("."))
         
-        with patch('notification_manager.show_notification'):
+        with patch('app.notification_manager.show_notification'):
             with patch.object(manager, '_play_notification_sound') as mock_sound:
                 # Only 1-minute threshold - triggers final alarm
                 manager.notify_dedicated_limit("app.exe", 30, [1])
@@ -386,7 +386,7 @@ class TestFinalWarning:
         manager = NotificationManager(Path("."))
         
         with patch.object(manager, '_play_notification_sound') as mock_sound:
-            with patch('notification_manager.show_notification') as mock_notify:
+            with patch('app.notification_manager.show_notification') as mock_notify:
                 # 4 minutes remaining - triggers 5-minute threshold
                 manager.notify_dedicated_limit("app.exe", 240, [5, 3, 1])
                 

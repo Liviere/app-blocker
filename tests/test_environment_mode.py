@@ -12,7 +12,7 @@ import pytest
 from datetime import datetime, UTC, timedelta
 from pathlib import Path
 from tests.test_utils import isolated_config, ConfigManager
-from config_manager import create_config_manager
+from app.config_manager import create_config_manager
 
 
 class TestEnvironmentMode:
@@ -23,7 +23,7 @@ class TestEnvironmentMode:
         # Clear any existing env var
         old_env = os.environ.pop("APP_BLOCKER_ENV", None)
         try:
-            from common import is_development_mode
+            from app.common import is_development_mode
             assert not is_development_mode()
         finally:
             if old_env:
@@ -101,7 +101,7 @@ class TestEnvironmentMode:
         """Should be able to toggle between PRODUCTION and DEVELOPMENT"""
         old_env = os.environ.get("APP_BLOCKER_ENV")
         try:
-            from common import is_development_mode
+            from app.common import is_development_mode
             
             # Start in production
             os.environ["APP_BLOCKER_ENV"] = "PRODUCTION"
@@ -124,7 +124,7 @@ class TestEnvironmentMode:
         """Environment check should be case-insensitive"""
         old_env = os.environ.get("APP_BLOCKER_ENV")
         try:
-            from common import is_development_mode
+            from app.common import is_development_mode
 
             # Test various cases for development
             for env_value in ["development", "DEVELOPMENT", "Development", "DevelopMent"]:
@@ -145,7 +145,7 @@ class TestEnvironmentMode:
         """If environment variable is missing, should default to PRODUCTION"""
         old_env = os.environ.pop("APP_BLOCKER_ENV", None)
         try:
-            from common import is_development_mode
+            from app.common import is_development_mode
             assert not is_development_mode()
         finally:
             if old_env:
@@ -155,7 +155,7 @@ class TestEnvironmentMode:
         """Invalid environment values should be treated as PRODUCTION"""
         old_env = os.environ.get("APP_BLOCKER_ENV")
         try:
-            from common import is_development_mode
+            from app.common import is_development_mode
             
             for invalid_value in ["STAGING", "TEST", "DEBUG", ""]:
                 os.environ["APP_BLOCKER_ENV"] = invalid_value

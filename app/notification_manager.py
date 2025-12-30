@@ -7,27 +7,15 @@ to warn users before applications are forcefully closed.
 
 import pygame
 import threading
-import sys
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
 from win10toast import ToastNotifier
-
+from .logger_utils import get_logger
+from .common import get_app_directory
 
 # === Sound playback infrastructure ===
 # Non-blocking sound playback using threading and pygame/winsound fallback.
-
-
-def get_app_directory() -> Path:
-    """
-    Get application directory - works with both development and PyInstaller.
-    
-    WHY: Sound files are located relative to the app directory.
-    """
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
-    else:
-        return Path(__file__).parent
 
 
 def _play_sound_blocking(sound_path: Path) -> None:
@@ -127,6 +115,8 @@ class NotificationManager:
         
         # Track the current day to reset notifications at midnight
         self._current_day: str = datetime.now().strftime("%Y-%m-%d")
+
+        self.logger = get_logger("app_blocker.monitor", self.app_dir, True)
     
     def _reset_if_new_day(self) -> None:
         """
@@ -204,6 +194,11 @@ class NotificationManager:
                 
                 if not self._was_notification_sent(key):
                     self._mark_notification_sent(key)
+
+                    self.logger.info(
+                        f"Sending dedicated limit notification for {app_name}: "
+                        f"threshold={threshold}, remaining_minutes={remaining_minutes}"
+                    )
                     
                     if threshold == 1:
                         title = f"⚠️ FINAL WARNING: {app_name}"
@@ -213,8 +208,10 @@ class NotificationManager:
                         message = f"{app_name} will be closed in {threshold} minutes"
                     
                     show_notification(title, message)
-                    self._play_notification_sound(threshold)
-                    
+                    try:
+                        self._play_notification_sound(threshold)
+                    except Exception as e:
+                        self.logger.error(f"Failed to play notification sound: {e}")
                     # Only trigger one notification per check (the most urgent one)
                     break
     
@@ -238,6 +235,11 @@ class NotificationManager:
                 
                 if not self._was_notification_sent(key):
                     self._mark_notification_sent(key)
+
+                    self.logger.info(
+                        f"Sending overall limit notification: "
+                        f"threshold={threshold}, remaining_minutes={remaining_minutes}"
+                    )
                     
                     if threshold == 1:
                         title = "⚠️ FINAL WARNING: Overall Limit"
@@ -247,7 +249,10 @@ class NotificationManager:
                         message = f"All monitored apps will be closed in {threshold} minutes"
                     
                     show_notification(title, message)
-                    self._play_notification_sound(threshold)
+                    try:
+                        self._play_notification_sound(threshold)
+                    except Exception as e:
+                        self.logger.error(f"Failed to play notification sound: {e}")
                     break
     
     def notify_blocked_hours_approaching(
@@ -269,6 +274,11 @@ class NotificationManager:
                 
                 if not self._was_notification_sent(key):
                     self._mark_notification_sent(key)
+
+                    self.logger.info(
+                        f"Sending blocked hours notification: "
+                        f"threshold={threshold}, minutes_until_block={minutes_until_block}"
+                    )
                     
                     if threshold == 1:
                         title = "⚠️ FINAL WARNING: Blocked Hours"
@@ -278,7 +288,10 @@ class NotificationManager:
                         message = f"Blocked hours start in {threshold} minutes ({blocked_start_time})"
                     
                     show_notification(title, message)
-                    self._play_notification_sound(threshold)
+                    try:
+                        self._play_notification_sound(threshold)
+                    except Exception as e:
+                        self.logger.error(f"Failed to play notification sound: {e}")
                     break
     
     def clear_notifications_for_app(self, app_name: str) -> None:

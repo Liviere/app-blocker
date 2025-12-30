@@ -29,7 +29,7 @@ def _fallback_parse(pyproject_path: Path) -> str:
 @lru_cache(maxsize=1)
 def get_version() -> str:
     """Return the canonical application version from pyproject.toml."""
-    pyproject_path = Path(__file__).with_name("pyproject.toml")
+    pyproject_path = Path(__file__).resolve().parent.parent / "pyproject.toml"
 
     if tomllib is None:  # pragma: no cover - executed only on Python < 3.11
         return _fallback_parse(pyproject_path)

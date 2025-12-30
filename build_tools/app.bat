@@ -1,12 +1,16 @@
 @echo off
 REM App Blocker - Windows helper script
 
+set SCRIPT_DIR=%~dp0
+set ROOT_DIR=%SCRIPT_DIR%..
+pushd "%ROOT_DIR%" >nul
+
 if "%1"=="gui" (
     echo Starting App Blocker GUI...
-    poetry run python gui.py
+    poetry run python -m app.gui
 ) else if "%1"=="monitor" (
     echo Starting App Blocker monitoring...
-    poetry run python main.py
+    poetry run python -m app.main
 ) else if "%1"=="install" (
     echo Installing dependencies...
     poetry install
@@ -30,3 +34,5 @@ if "%1"=="gui" (
     echo   app.bat lint      - Lint code
     echo   app.bat test      - Run tests
 )
+
+popd >nul

@@ -4,7 +4,7 @@ import sys
 import traceback
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from common import get_app_directory
+from .common import get_app_directory
 
 
 class _EventLogHandler(logging.Handler):

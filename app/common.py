@@ -31,8 +31,8 @@ def get_app_directory() -> Path:
         # Running as compiled executable
         return Path(sys.executable).parent
     else:
-        # Running as script
-        return Path(__file__).parent
+        # Running as script (repository layout: app/ holds code, configs are one level up)
+        return Path(__file__).resolve().parent.parent
 
 
 def is_development_mode() -> bool:

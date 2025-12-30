@@ -8,7 +8,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from autostart import AutostartManager
+from app.autostart import AutostartManager
 
 def test_minimized_startup():
     """Test the minimized startup feature"""

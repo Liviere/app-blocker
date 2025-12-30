@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from security_manager import (
+from app.security_manager import (
     SecurityManager,
     check_crypto_available,
     get_min_password_length,

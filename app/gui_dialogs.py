@@ -8,8 +8,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime, UTC
 
-from security_manager import SecurityManager, get_min_password_length
-from time_utils import validate_time_format, time_str_to_minutes, validate_blocked_hours
+from .security_manager import SecurityManager, get_min_password_length
+from .time_utils import validate_time_format, time_str_to_minutes, validate_blocked_hours
 
 
 # === Password Setup Dialog ===

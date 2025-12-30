@@ -10,6 +10,10 @@ import time
 from pathlib import Path
 
 
+ROOT_DIR = Path(__file__).resolve().parent.parent
+os.chdir(ROOT_DIR)
+
+
 def test_executable(exe_path, description):
     """Test if executable runs correctly"""
     print(f"🧪 Testing {description}...")

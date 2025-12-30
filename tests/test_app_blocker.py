@@ -12,8 +12,8 @@ from unittest.mock import patch, Mock
 # Add parent directory to path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import main
-import gui
+from app import main
+from app import gui
 
 
 class TestAppBlockerCore(unittest.TestCase):
@@ -53,9 +53,9 @@ class TestAppBlockerCore(unittest.TestCase):
         self.assertIsInstance(app_dir, Path)
         self.assertTrue(app_dir.exists())
 
-    @patch("main.APP_DIR")
-    @patch("main.CONFIG_PATH")
-    @patch("main.LOG_PATH")
+    @patch("app.main.APP_DIR")
+    @patch("app.main.CONFIG_PATH")
+    @patch("app.main.LOG_PATH")
     def test_config_loading_with_test_files(
         self, mock_log_path, mock_config_path, mock_app_dir
     ):
@@ -110,7 +110,7 @@ class TestAppBlockerGUI(unittest.TestCase):
 
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
-    @patch("common.get_app_directory")
+    @patch("app.common.get_app_directory")
     def test_gui_initialization_with_test_config(self, mock_get_app_dir):
         """Test GUI initialization with test config files"""
         mock_get_app_dir.return_value = Path(self.test_dir)

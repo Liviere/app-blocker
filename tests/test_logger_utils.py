@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from logger_utils import get_logger, parse_log_line
+from app.logger_utils import get_logger, parse_log_line
 
 
 class TestLoggerUtils(unittest.TestCase):

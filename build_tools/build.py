@@ -10,6 +10,11 @@ import shutil
 from pathlib import Path
 
 
+# Repository root (one level above this script)
+ROOT_DIR = Path(__file__).resolve().parent.parent
+os.chdir(ROOT_DIR)
+
+
 def run_command(cmd, description):
     """Run a command and handle errors"""
     print(f"\n🔄 {description}...")
@@ -47,7 +52,7 @@ def create_pyinstaller_specs():
     main_spec = """# -*- mode: python ; coding: utf-8 -*-
 
 a = Analysis(
-    ['main.py'],
+    ['app/main.py'],
     pathex=['.'],
     binaries=[],
     datas=[
@@ -90,7 +95,7 @@ exe = EXE(
     gui_spec = """# -*- mode: python ; coding: utf-8 -*-
 
 a = Analysis(
-    ['gui.py'],
+    ['app/gui.py'],
     pathex=['.'],
     binaries=[],
     datas=[
@@ -209,8 +214,8 @@ def main():
     print("=" * 50)
     
     # Check if we're in the right directory
-    if not os.path.exists("main.py") or not os.path.exists("gui.py"):
-        print("❌ Error: main.py or gui.py not found in current directory")
+    if not os.path.exists("app/main.py") or not os.path.exists("app/gui.py"):
+        print("❌ Error: app/main.py or app/gui.py not found in repository root")
         sys.exit(1)
     
     # Install PyInstaller if not available

@@ -14,7 +14,7 @@ import pytest
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from single_instance import SingleInstance, ensure_single_instance  # noqa: E402
+from app.single_instance import SingleInstance, ensure_single_instance  # noqa: E402
 
 
 class TestSingleInstance:
@@ -104,7 +104,7 @@ class TestSingleInstanceIntegration:
         test_script = f"""
 import sys
 sys.path.insert(0, r"{repo_root}")
-from single_instance import ensure_single_instance
+from app.single_instance import ensure_single_instance
 import time
 
 instance = ensure_single_instance("SubprocessTest")

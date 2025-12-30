@@ -9,22 +9,22 @@ from datetime import datetime, UTC, timedelta
 from pathlib import Path
 
 import psutil
-from autostart import AutostartManager
-from system_tray import SystemTrayManager, is_tray_supported
-from single_instance import ensure_single_instance
-from logger_utils import get_logger
-from security_manager import (
+from .autostart import AutostartManager
+from .system_tray import SystemTrayManager, is_tray_supported
+from .single_instance import ensure_single_instance
+from .logger_utils import get_logger
+from .security_manager import (
     SecurityManager,
     check_crypto_available,
     get_min_password_length,
 )
-from state_manager import StateEvent, create_state_manager
-from notification_manager import validate_warning_thresholds
-from common import get_app_directory, is_development_mode
-from config_manager import create_config_manager
+from .state_manager import StateEvent, create_state_manager
+from .notification_manager import validate_warning_thresholds
+from .common import get_app_directory, is_development_mode
+from .config_manager import create_config_manager
 
 # Import dialog classes from separate module
-from gui_dialogs import (
+from .gui_dialogs import (
     MasterPasswordSetupDialog,
     ProtectedModeDialog,
     BlockedHoursDialog,
@@ -32,7 +32,7 @@ from gui_dialogs import (
 )
 
 # Import log viewer from separate module
-from gui_log_viewer import LogViewerWindow
+from .gui_log_viewer import LogViewerWindow
 
 
 # === CHECKPOINT: Main GUI Application ===
@@ -1446,11 +1446,7 @@ def main():
         sys.exit(1)
     
     # Get app directory for security manager
-    if getattr(sys, "frozen", False):
-        app_dir = Path(sys.executable).parent
-    else:
-        app_dir = Path(__file__).parent
-    
+    app_dir = get_app_directory()
     security_manager = SecurityManager(app_dir)
     
     if not security_manager.is_password_set():

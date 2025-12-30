@@ -100,11 +100,11 @@ def isolated_config(config_data=None, log_data=None):
         test_dir = manager.setup(config_data, log_data)
 
         # Patch the config paths to point to test files
-        with patch("main.CONFIG_PATH", manager.config_path), patch(
-            "main.LOG_PATH", manager.log_path
-        ), patch("main.HEARTBEAT_PATH", manager.heartbeat_path), patch(
-            "main.APP_DIR", Path(manager.test_dir)
-        ), patch("main.PENDING_UPDATES_PATH", manager.pending_updates_path):
+        with patch("app.main.CONFIG_PATH", manager.config_path), patch(
+            "app.main.LOG_PATH", manager.log_path
+        ), patch("app.main.HEARTBEAT_PATH", manager.heartbeat_path), patch(
+            "app.main.APP_DIR", Path(manager.test_dir)
+        ), patch("app.main.PENDING_UPDATES_PATH", manager.pending_updates_path):
             yield manager
 
     finally:
@@ -134,7 +134,7 @@ def create_test_log(entries=None):
 
 def verify_real_files_unchanged():
     """Verify that real config files haven't been modified by tests"""
-    import main
+    from app import main
 
     real_config_path = main.get_app_directory() / "config.json"
     real_log_path = main.get_app_directory() / "usage_log.json"

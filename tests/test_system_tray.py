@@ -13,7 +13,7 @@ import os
 # Add the project root to Python path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from system_tray import SystemTrayManager, is_tray_supported
+from app.system_tray import SystemTrayManager, is_tray_supported
 
 
 class MockStateManager:
@@ -129,7 +129,7 @@ class TestSystemTrayManager:
         """Test menu items when monitoring is stopped"""
         self.mock_app.state_manager.is_monitoring = False
         
-        with patch('system_tray.pystray') as mock_pystray:
+        with patch('app.system_tray.pystray') as mock_pystray:
             mock_pystray.MenuItem = MagicMock()
             mock_pystray.Menu = MagicMock()
             
@@ -142,7 +142,7 @@ class TestSystemTrayManager:
         """Test menu items when monitoring is active"""
         self.mock_app.state_manager.is_monitoring = True
         
-        with patch('system_tray.pystray') as mock_pystray:
+        with patch('app.system_tray.pystray') as mock_pystray:
             mock_pystray.MenuItem = MagicMock()
             mock_pystray.Menu = MagicMock()
             
@@ -151,7 +151,7 @@ class TestSystemTrayManager:
             # Should have 4 items (Show, Stop Monitoring, Separator, Quit)
             assert len(items) == 4
 
-    @patch('system_tray.pystray')
+    @patch('app.system_tray.pystray')
     @patch('threading.Thread')
     def test_start_tray_success(self, mock_thread, mock_pystray):
         """Test successful tray startup"""
@@ -166,7 +166,7 @@ class TestSystemTrayManager:
         assert self.tray_manager.icon is mock_icon
         mock_thread.assert_called_once()
 
-    @patch('system_tray.pystray')
+    @patch('app.system_tray.pystray')
     def test_start_tray_failure(self, mock_pystray):
         """Test tray startup failure"""
         mock_pystray.Icon.side_effect = Exception("Tray not available")
@@ -217,7 +217,7 @@ class TestSystemTrayManager:
         self.mock_app.state_manager.is_monitoring = True  # Different from cached
         
         with patch.object(self.tray_manager, 'get_menu_items', return_value=[]) as mock_get_items:
-            with patch('system_tray.pystray') as mock_pystray:
+            with patch('app.system_tray.pystray') as mock_pystray:
                 mock_pystray.Menu.return_value = MagicMock()
                 
                 self.tray_manager.update_menu()
@@ -236,7 +236,7 @@ class TestSystemTrayManager:
         self.mock_app.state_manager.is_monitoring = False
         
         with patch.object(self.tray_manager, 'get_menu_items', return_value=[]) as mock_get_items:
-            with patch('system_tray.pystray') as mock_pystray:
+            with patch('app.system_tray.pystray') as mock_pystray:
                 mock_pystray.Menu.return_value = MagicMock()
                 
                 self.tray_manager.update_menu()
@@ -270,7 +270,7 @@ class TestSystemTrayManager:
         # Since pystray is installed, this should be True
         assert result is True
 
-    @patch('system_tray._check_pystray_import')
+    @patch('app.system_tray._check_pystray_import')
     def test_is_tray_available_mock_false(self, mock_check):
         """Test checking tray availability when mocked as unavailable"""
         mock_check.return_value = False
@@ -287,7 +287,7 @@ class TestTraySupport:
         # Since pystray is installed, this should be True
         assert result is True
 
-    @patch('system_tray._check_pystray_import')
+    @patch('app.system_tray._check_pystray_import')
     def test_is_tray_supported_mock_false(self, mock_check):
         """Test tray support detection when mocked as not supported"""
         mock_check.return_value = False

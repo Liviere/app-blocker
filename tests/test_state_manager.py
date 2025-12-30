@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from state_manager import (
+from app.state_manager import (
     StateManager,
     StateEvent,
     create_state_manager,
