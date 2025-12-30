@@ -1393,7 +1393,8 @@ class AppBlockerGUI:
         # If restart disabled or failed, stop monitoring cleanly
         self.stop_monitoring()
 
-    # === CHECKPOINT: Main Entry Point ===
+
+# === Main Entry Point ===
 def main():
     """Entry point for the app-blocker-gui command"""
     import argparse
