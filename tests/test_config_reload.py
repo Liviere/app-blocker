@@ -13,6 +13,8 @@ from unittest.mock import patch, Mock
 # Add parent directory to path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from config_manager import create_config_manager
+
 import main
 
 
@@ -48,9 +50,9 @@ class TestConfigurationReload(unittest.TestCase):
     def test_time_limit_increase_prevents_kill(self, mock_kill):
         """Test that increasing time limit prevents app from being killed"""
         # Patch the paths directly
-        with patch.object(main, "CONFIG_PATH", self.config_path), patch.object(
-            main, "LOG_PATH", self.log_path
-        ):
+        with patch.object(main, "APP_DIR", Path(self.test_dir)), patch.object(
+            main, "CONFIG_PATH", self.config_path
+        ), patch.object(main, "LOG_PATH", self.log_path):
 
             # Mock process to always show notepad.exe is running
             mock_process = Mock()
@@ -96,9 +98,9 @@ class TestConfigurationReload(unittest.TestCase):
     def test_new_app_added_during_monitoring(self):
         """Test that new apps added to config are monitored immediately"""
         # Patch the paths directly
-        with patch.object(main, "CONFIG_PATH", self.config_path), patch.object(
-            main, "LOG_PATH", self.log_path
-        ):
+        with patch.object(main, "APP_DIR", Path(self.test_dir)), patch.object(
+            main, "CONFIG_PATH", self.config_path
+        ), patch.object(main, "LOG_PATH", self.log_path):
 
             # Mock processes
             mock_notepad = Mock()
@@ -163,9 +165,9 @@ class TestConfigurationReload(unittest.TestCase):
     def test_check_interval_change(self):
         """Test that check_interval changes are applied immediately"""
         # Patch the paths directly
-        with patch.object(main, "CONFIG_PATH", self.config_path), patch.object(
-            main, "LOG_PATH", self.log_path
-        ):
+        with patch.object(main, "APP_DIR", Path(self.test_dir)), patch.object(
+            main, "CONFIG_PATH", self.config_path
+        ), patch.object(main, "LOG_PATH", self.log_path):
 
             # Mock process
             mock_process = Mock()
@@ -213,9 +215,9 @@ class TestConfigurationReload(unittest.TestCase):
     def test_monitoring_stops_when_disabled_in_config(self):
         """Test that monitoring stops when disabled in config"""
         # Patch the paths directly
-        with patch.object(main, "CONFIG_PATH", self.config_path), patch.object(
-            main, "LOG_PATH", self.log_path
-        ):
+        with patch.object(main, "APP_DIR", Path(self.test_dir)), patch.object(
+            main, "CONFIG_PATH", self.config_path
+        ), patch.object(main, "LOG_PATH", self.log_path):
 
             # Mock process
             mock_process = Mock()
@@ -271,9 +273,9 @@ class TestConfigurationReload(unittest.TestCase):
         with open(self.config_path, "w") as f:
             json.dump(overall_config, f, indent=2)
 
-        with patch.object(main, "CONFIG_PATH", self.config_path), patch.object(
-            main, "LOG_PATH", self.log_path
-        ):
+        with patch.object(main, "APP_DIR", Path(self.test_dir)), patch.object(
+            main, "CONFIG_PATH", self.config_path
+        ), patch.object(main, "LOG_PATH", self.log_path):
             proc1 = Mock()
             proc1.name.return_value = "app1.exe"
             proc1.pid = 1
@@ -298,9 +300,11 @@ class TestConfigurationReload(unittest.TestCase):
 
     def test_pending_updates_are_applied_when_due(self):
         """Pending time limit updates should apply after their timestamp"""
-        with patch.object(main, "CONFIG_PATH", self.config_path), patch.object(
-            main, "LOG_PATH", self.log_path
-        ), patch.object(main, "PENDING_UPDATES_PATH", Path(self.test_dir) / "pending.json"):
+        pending_path = Path(self.test_dir) / "pending_time_limit_updates.json"
+        with patch.object(main, "APP_DIR", Path(self.test_dir)), patch.object(
+            main, "CONFIG_PATH", self.config_path
+        ), patch.object(main, "LOG_PATH", self.log_path
+        ), patch.object(main, "PENDING_UPDATES_PATH", pending_path):
             # Write base config
             base_config = {
                 "time_limits": {"overall": 0, "dedicated": {"app1.exe": 10}},
@@ -318,13 +322,14 @@ class TestConfigurationReload(unittest.TestCase):
                     "apply_at": datetime.now(UTC).isoformat(),
                 }
             ]
-            with open(main.PENDING_UPDATES_PATH, "w") as f:
+            with open(pending_path, "w") as f:
                 json.dump(pending, f, indent=2)
 
-            config = main._apply_pending_updates(main.load_config())
+            config_manager = create_config_manager(Path(self.test_dir))
+            config = config_manager.apply_pending_updates(config_manager.load_config())
             self.assertEqual(config["time_limits"]["dedicated"]["app1.exe"], 20)
 
-            with open(main.PENDING_UPDATES_PATH, "r") as f:
+            with open(pending_path, "r") as f:
                 remaining = json.load(f)
             self.assertEqual(remaining, [])
 

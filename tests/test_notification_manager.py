@@ -14,7 +14,7 @@ from notification_manager import (
     parse_warning_thresholds,
     validate_warning_thresholds,
 )
-from main import get_minutes_until_blocked_hours
+from time_utils import get_minutes_until_blocked_hours
 
 
 # === Warning threshold parsing tests ===
@@ -227,7 +227,7 @@ class TestGetMinutesUntilBlockedHours:
     def test_empty_blocked_hours(self):
         """Empty list should return -1."""
         now = datetime(2025, 1, 1, 12, 0)
-        minutes, start_time = get_minutes_until_blocked_hours(now, [])
+        minutes, start_time = get_minutes_until_blocked_hours(now.hour, now.minute, [])
         assert minutes == -1
         assert start_time == ""
     
@@ -236,7 +236,7 @@ class TestGetMinutesUntilBlockedHours:
         now = datetime(2025, 1, 1, 22, 0)  # 22:00
         blocked = [{"start": "21:00", "end": "23:00"}]
         
-        minutes, start_time = get_minutes_until_blocked_hours(now, blocked)
+        minutes, start_time = get_minutes_until_blocked_hours(now.hour, now.minute, blocked)
         assert minutes == -1
     
     def test_same_day_upcoming_block(self):
@@ -244,7 +244,7 @@ class TestGetMinutesUntilBlockedHours:
         now = datetime(2025, 1, 1, 20, 0)  # 20:00
         blocked = [{"start": "21:00", "end": "23:00"}]
         
-        minutes, start_time = get_minutes_until_blocked_hours(now, blocked)
+        minutes, start_time = get_minutes_until_blocked_hours(now.hour, now.minute, blocked)
         assert minutes == 60  # 1 hour until 21:00
         assert start_time == "21:00"
     
@@ -253,7 +253,7 @@ class TestGetMinutesUntilBlockedHours:
         now = datetime(2025, 1, 1, 23, 30)  # 23:30
         blocked = [{"start": "09:00", "end": "17:00"}]
         
-        minutes, start_time = get_minutes_until_blocked_hours(now, blocked)
+        minutes, start_time = get_minutes_until_blocked_hours(now.hour, now.minute, blocked)
         # 23:30 to midnight = 30 min, midnight to 09:00 = 540 min = 570 total
         assert minutes == 570
         assert start_time == "09:00"
@@ -266,7 +266,7 @@ class TestGetMinutesUntilBlockedHours:
             {"start": "19:00", "end": "20:00"},  # 1 hour away - nearest
         ]
         
-        minutes, start_time = get_minutes_until_blocked_hours(now, blocked)
+        minutes, start_time = get_minutes_until_blocked_hours(now.hour, now.minute, blocked)
         assert minutes == 60  # 1 hour to 19:00
         assert start_time == "19:00"
     
@@ -275,7 +275,7 @@ class TestGetMinutesUntilBlockedHours:
         now = datetime(2025, 1, 1, 12, 0)  # Noon
         blocked = [{"start": "23:00", "end": "02:00"}]  # Overnight block
         
-        minutes, start_time = get_minutes_until_blocked_hours(now, blocked)
+        minutes, start_time = get_minutes_until_blocked_hours(now.hour, now.minute, blocked)
         assert minutes == 660  # 11 hours = 660 minutes to 23:00
         assert start_time == "23:00"
     
@@ -287,7 +287,7 @@ class TestGetMinutesUntilBlockedHours:
             {"start": "21:00", "end": "23:00"},  # Valid
         ]
         
-        minutes, start_time = get_minutes_until_blocked_hours(now, blocked)
+        minutes, start_time = get_minutes_until_blocked_hours(now.hour, now.minute, blocked)
         assert minutes == 540  # 9 hours to 21:00
         assert start_time == "21:00"
 

@@ -12,6 +12,7 @@ import pytest
 from datetime import datetime, UTC, timedelta
 from pathlib import Path
 from tests.test_utils import isolated_config, ConfigManager
+from config_manager import create_config_manager
 
 
 class TestEnvironmentMode:
@@ -22,8 +23,8 @@ class TestEnvironmentMode:
         # Clear any existing env var
         old_env = os.environ.pop("APP_BLOCKER_ENV", None)
         try:
-            from main import _is_development_mode
-            assert not _is_development_mode()
+            from common import is_development_mode
+            assert not is_development_mode()
         finally:
             if old_env:
                 os.environ["APP_BLOCKER_ENV"] = old_env
@@ -100,19 +101,19 @@ class TestEnvironmentMode:
         """Should be able to toggle between PRODUCTION and DEVELOPMENT"""
         old_env = os.environ.get("APP_BLOCKER_ENV")
         try:
-            from main import _is_development_mode
+            from common import is_development_mode
             
             # Start in production
             os.environ["APP_BLOCKER_ENV"] = "PRODUCTION"
-            assert not _is_development_mode()
+            assert not is_development_mode()
 
             # Switch to development
             os.environ["APP_BLOCKER_ENV"] = "DEVELOPMENT"
-            assert _is_development_mode()
+            assert is_development_mode()
 
             # Switch back to production
             os.environ["APP_BLOCKER_ENV"] = "PRODUCTION"
-            assert not _is_development_mode()
+            assert not is_development_mode()
         finally:
             if old_env:
                 os.environ["APP_BLOCKER_ENV"] = old_env
@@ -123,17 +124,17 @@ class TestEnvironmentMode:
         """Environment check should be case-insensitive"""
         old_env = os.environ.get("APP_BLOCKER_ENV")
         try:
-            from main import _is_development_mode
+            from common import is_development_mode
 
             # Test various cases for development
             for env_value in ["development", "DEVELOPMENT", "Development", "DevelopMent"]:
                 os.environ["APP_BLOCKER_ENV"] = env_value
-                assert _is_development_mode()
+                assert is_development_mode()
 
             # Test various cases for production
             for env_value in ["production", "PRODUCTION", "Production", "ProDuction"]:
                 os.environ["APP_BLOCKER_ENV"] = env_value
-                assert not _is_development_mode()
+                assert not is_development_mode()
         finally:
             if old_env:
                 os.environ["APP_BLOCKER_ENV"] = old_env
@@ -144,8 +145,8 @@ class TestEnvironmentMode:
         """If environment variable is missing, should default to PRODUCTION"""
         old_env = os.environ.pop("APP_BLOCKER_ENV", None)
         try:
-            from main import _is_development_mode
-            assert not _is_development_mode()
+            from common import is_development_mode
+            assert not is_development_mode()
         finally:
             if old_env:
                 os.environ["APP_BLOCKER_ENV"] = old_env
@@ -154,11 +155,11 @@ class TestEnvironmentMode:
         """Invalid environment values should be treated as PRODUCTION"""
         old_env = os.environ.get("APP_BLOCKER_ENV")
         try:
-            from main import _is_development_mode
+            from common import is_development_mode
             
             for invalid_value in ["STAGING", "TEST", "DEBUG", ""]:
                 os.environ["APP_BLOCKER_ENV"] = invalid_value
-                assert not _is_development_mode(), f"Invalid value '{invalid_value}' was treated as DEVELOPMENT"
+                assert not is_development_mode(), f"Invalid value '{invalid_value}' was treated as DEVELOPMENT"
         finally:
             if old_env:
                 os.environ["APP_BLOCKER_ENV"] = old_env
@@ -192,11 +193,11 @@ class TestEnvironmentModeIntegration:
                 with open(pending_path, "w") as f:
                     json.dump([stale_update], f, indent=2)
 
-                # Import and call _apply_pending_updates from main.py
-                from main import _apply_pending_updates
+                # Import and call apply_pending_updates from config_manager
+                config_manager = create_config_manager(Path(manager.test_dir))
 
                 # Apply pending updates (should be skipped in dev mode)
-                config = _apply_pending_updates(config)
+                config = config_manager.apply_pending_updates(config)
 
                 # Verify config hasn't been modified by pending updates
                 assert "old.exe" not in config["time_limits"]["dedicated"]
@@ -230,11 +231,11 @@ class TestEnvironmentModeIntegration:
                 with open(pending_path, "w") as f:
                     json.dump([due_update], f, indent=2)
 
-                # Import and call _apply_pending_updates from main.py
-                from main import _apply_pending_updates
+                # Import and call apply_pending_updates from config_manager
+                config_manager = create_config_manager(Path(manager.test_dir))
 
                 # Apply pending updates
-                config = _apply_pending_updates(config)
+                config = config_manager.apply_pending_updates(config)
 
                 # Verify the update was applied
                 assert "new.exe" in config["time_limits"]["dedicated"]

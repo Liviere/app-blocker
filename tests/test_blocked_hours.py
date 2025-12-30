@@ -6,21 +6,18 @@ WHY: Ensures time range validation, overlap detection, and monitor enforcement w
 import unittest
 import sys
 from pathlib import Path
-from datetime import datetime
 
 # Add parent directory to path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from main import (
+from time_utils import (
     parse_time_str,
     time_to_minutes,
     is_time_in_range,
-    is_within_blocked_hours,
-)
-from gui import (
     validate_time_format,
     ranges_overlap,
     validate_blocked_hours,
+    is_within_blocked_hours,
 )
 
 
@@ -95,21 +92,18 @@ class TestIsWithinBlockedHours(unittest.TestCase):
 
     def test_empty_blocked_hours(self):
         """Test with no blocked hours configured"""
-        now = datetime(2025, 12, 28, 12, 0, 0)
-        self.assertFalse(is_within_blocked_hours(now, []))
-        self.assertFalse(is_within_blocked_hours(now, None))
+        self.assertFalse(is_within_blocked_hours(12, 0, []))
+        self.assertFalse(is_within_blocked_hours(12, 0, None))
 
     def test_single_range_inside(self):
         """Test when current time is inside a blocked range"""
         blocked = [{"start": "09:00", "end": "17:00"}]
-        now = datetime(2025, 12, 28, 12, 0, 0)
-        self.assertTrue(is_within_blocked_hours(now, blocked))
+        self.assertTrue(is_within_blocked_hours(12, 0, blocked))
 
     def test_single_range_outside(self):
         """Test when current time is outside a blocked range"""
         blocked = [{"start": "09:00", "end": "17:00"}]
-        now = datetime(2025, 12, 28, 20, 0, 0)
-        self.assertFalse(is_within_blocked_hours(now, blocked))
+        self.assertFalse(is_within_blocked_hours(20, 0, blocked))
 
     def test_multiple_ranges(self):
         """Test with multiple blocked ranges"""
@@ -119,38 +113,26 @@ class TestIsWithinBlockedHours(unittest.TestCase):
         ]
 
         # In first range
-        self.assertTrue(is_within_blocked_hours(
-            datetime(2025, 12, 28, 10, 0, 0), blocked
-        ))
+        self.assertTrue(is_within_blocked_hours(10, 0, blocked))
 
         # In second range
-        self.assertTrue(is_within_blocked_hours(
-            datetime(2025, 12, 28, 15, 0, 0), blocked
-        ))
+        self.assertTrue(is_within_blocked_hours(15, 0, blocked))
 
         # Between ranges
-        self.assertFalse(is_within_blocked_hours(
-            datetime(2025, 12, 28, 13, 0, 0), blocked
-        ))
+        self.assertFalse(is_within_blocked_hours(13, 0, blocked))
 
     def test_overnight_range(self):
         """Test overnight blocked range"""
         blocked = [{"start": "23:00", "end": "06:00"}]
 
         # Before midnight
-        self.assertTrue(is_within_blocked_hours(
-            datetime(2025, 12, 28, 23, 30, 0), blocked
-        ))
+        self.assertTrue(is_within_blocked_hours(23, 30, blocked))
 
         # After midnight
-        self.assertTrue(is_within_blocked_hours(
-            datetime(2025, 12, 29, 3, 0, 0), blocked
-        ))
+        self.assertTrue(is_within_blocked_hours(3, 0, blocked))
 
         # Outside range
-        self.assertFalse(is_within_blocked_hours(
-            datetime(2025, 12, 28, 12, 0, 0), blocked
-        ))
+        self.assertFalse(is_within_blocked_hours(12, 0, blocked))
 
     def test_invalid_range_format(self):
         """Test handling of invalid range formats"""
@@ -159,9 +141,8 @@ class TestIsWithinBlockedHours(unittest.TestCase):
             {"start": "09:00", "end": ""},
             {},
         ]
-        now = datetime(2025, 12, 28, 10, 0, 0)
         # Should not crash, just skip invalid ranges
-        self.assertFalse(is_within_blocked_hours(now, blocked))
+        self.assertFalse(is_within_blocked_hours(10, 0, blocked))
 
 
 class TestValidateTimeFormat(unittest.TestCase):

@@ -1,9 +1,13 @@
 import json
 import unittest
+import sys
 import tempfile
 from datetime import datetime, timedelta, UTC
 from pathlib import Path
 from unittest.mock import patch
+
+# Add parent directory to path so we can import our modules
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import main
 from gui import AppBlockerGUI
@@ -51,6 +55,7 @@ class TestMonitorHeartbeat(unittest.TestCase):
             except (KeyboardInterrupt, SystemExit):
                 pass
 
+        # Debug: Print heartbeat file contents
         self.assertTrue(self.heartbeat_path.exists())
         with open(self.heartbeat_path, "r") as f:
             hb = json.load(f)

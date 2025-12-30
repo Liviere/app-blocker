@@ -13,7 +13,10 @@ from notification_manager import (
 )
 from common import get_app_directory
 from config_manager import create_config_manager
-from time_utils import is_within_blocked_hours, get_minutes_until_blocked_hours 
+from time_utils import (
+    is_within_blocked_hours,
+    get_minutes_until_blocked_hours,
+)
 
 
 
@@ -25,12 +28,17 @@ LOG_PATH = APP_DIR / "usage_log.json"
 HEARTBEAT_PATH = APP_DIR / "monitor_heartbeat.json"
 PENDING_UPDATES_PATH = APP_DIR / "pending_time_limit_updates.json"
 
-# Initialize config manager
-config_manager = create_config_manager(APP_DIR)
 
-
-# === Utility functions ===
-# Functions that were removed during refactoring but are still needed
+def _get_config_manager():
+    """
+    Get config manager instance using current APP_DIR.
+    
+    WHY: Created as function (not global) to allow tests to patch APP_DIR
+    before config_manager is instantiated. Global initialization would
+    capture APP_DIR at import time, making it impossible to test with
+    different directories.
+    """
+    return create_config_manager(APP_DIR)
 
 
 def _log_boot_proximity(logger, component, threshold):
@@ -95,6 +103,7 @@ def kill_app(app_name, logger=None):
 
 def monitor():
     """Main monitoring function"""
+    config_manager = _get_config_manager()
     config = config_manager.apply_pending_updates(config_manager.load_config())
     if config is None:
         sys.exit(1)
@@ -188,7 +197,7 @@ def monitor():
             
             if notifications_enabled and blocked_hours:
                 minutes_until_block, block_start_time = get_minutes_until_blocked_hours(
-                    now, blocked_hours
+                    now.hour, now.minute, blocked_hours
                 )
                 if minutes_until_block > 0:
                     # Check if any monitored app is running - only notify if so
@@ -203,7 +212,7 @@ def monitor():
             # === Blocked hours enforcement ===
             # Check if current time falls within any blocked time range.
             # If so, kill all monitored apps regardless of time limits.
-            if is_within_blocked_hours(now, blocked_hours):
+            if is_within_blocked_hours(now.hour, now.minute, blocked_hours):
                 apps_killed = False
                 for app in apps:
                     if app in running:
@@ -263,11 +272,7 @@ def monitor():
                             remaining_overall,
                             warning_thresholds
                         )
-                        notification_manager.notify_overall_limit(
-                            remaining_overall,
-                            warning_thresholds
-                        )
-                
+
                 if total_used >= overall_limit:
                     for app in running:
                         if app in apps:
@@ -283,7 +288,7 @@ def monitor():
         except Exception as e:
             logger.error("Monitoring error: %s", e)
             time.sleep(5)
-
+    
     logger.info("Monitor stop")
     _update_heartbeat("stopped")
 

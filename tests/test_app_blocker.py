@@ -110,7 +110,7 @@ class TestAppBlockerGUI(unittest.TestCase):
 
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
-    @patch("gui.AppBlockerGUI.get_app_directory")
+    @patch("common.get_app_directory")
     def test_gui_initialization_with_test_config(self, mock_get_app_dir):
         """Test GUI initialization with test config files"""
         mock_get_app_dir.return_value = Path(self.test_dir)
