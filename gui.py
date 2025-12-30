@@ -20,6 +20,7 @@ from security_manager import (
 )
 from state_manager import StateEvent, create_state_manager
 from notification_manager import validate_warning_thresholds
+from common import get_app_directory, is_development_mode, set_environment_mode, normalize_time_limits
 
 
 # === Password setup dialog ===
@@ -913,7 +914,9 @@ class AppBlockerGUI:
         self.single_instance_lock = single_instance_lock
 
         # Use application directory for config files
-        self.app_dir = self.get_app_directory()
+        self.app_dir = get_app_directory()
+        # Ensure directory exists
+        self.app_dir.mkdir(exist_ok=True)
         self.config_path = self.app_dir / "config.json"
         self.log_path = self.app_dir / "usage_log.json"
         self.app_log_path = self.app_dir / "app_blocker.log"
@@ -1061,19 +1064,6 @@ class AppBlockerGUI:
         # Schedule next sync (every 5 seconds)
         self.root.after(5000, self._do_state_sync)
 
-    def get_app_directory(self):
-        """Get application directory - works with both development and PyInstaller"""
-        if getattr(sys, "frozen", False):
-            # Running as compiled executable
-            app_dir = Path(sys.executable).parent
-        else:
-            # Running as script
-            app_dir = Path(__file__).parent
-
-        # Ensure directory exists
-        app_dir.mkdir(exist_ok=True)
-        return app_dir
-
     def get_main_executable(self):
         """Get path to main.py or main.exe"""
         if getattr(sys, "frozen", False):
@@ -1123,7 +1113,7 @@ class AppBlockerGUI:
             # Save the config to create user's config file
             self.save_config()
 
-        self._normalize_time_limits()
+        self.config = normalize_time_limits(self.config)
         self._ensure_config_defaults()
         
         # Verify config integrity if security manager is set up
@@ -1200,33 +1190,6 @@ class AppBlockerGUI:
         if changed:
             self.save_config()
 
-    def _normalize_time_limits(self):
-        """Keep time_limits in dedicated/overall shape (legacy apps supported)"""
-        limits = self.config.get("time_limits")
-        legacy = self.config.get("apps") if "time_limits" not in self.config else None
-
-        source = limits if isinstance(limits, dict) else legacy if isinstance(legacy, dict) else {}
-
-        if "dedicated" in source or "overall" in source:
-            dedicated = source.get("dedicated", {}) or {}
-            overall = source.get("overall", 0) or 0
-            normalized = {"overall": overall, "dedicated": dedicated}
-        else:
-            normalized = {"overall": 0, "dedicated": source}
-
-        self.config["time_limits"] = normalized
-        if "apps" in self.config:
-            self.config.pop("apps", None)
-
-        # Enforce minimum delay from config
-        try:
-            delay_hours = int(self.config.get("time_limit_update_delay_hours", 2))
-        except Exception:
-            delay_hours = 2
-        if delay_hours < 2:
-            delay_hours = 2
-        self.config["time_limit_update_delay_hours"] = delay_hours
-
     def _get_overall_minutes(self):
         """Expose overall cap in minutes for settings UI"""
         overall_seconds = self.config.get("time_limits", {}).get("overall", 0)
@@ -1254,27 +1217,11 @@ class AppBlockerGUI:
         except Exception:
             pass
 
-    def _is_development_mode(self):
-        """Check if application is running in development mode.
-        
-        WHY: Development mode bypasses time limit update delays for faster iteration.
-        Reads from APP_BLOCKER_ENV environment variable.
-        """
-        return os.environ.get("APP_BLOCKER_ENV", "PRODUCTION").upper() == "DEVELOPMENT"
-    
-    def _set_environment_mode(self, mode: str):
-        """Set environment mode via OS environment variable.
-        
-        WHY: Environment variable persists for the current process and child processes.
-        Note: This only affects current session. For permanent change, set system env var.
-        """
-        os.environ["APP_BLOCKER_ENV"] = mode.upper()
-
     def _schedule_time_limit_update(self, update):
         """Queue a time limit update to apply after configured delay"""
         # === Immediate apply in development mode ===
         # In dev mode, apply changes immediately instead of scheduling.
-        if self._is_development_mode():
+        if is_development_mode():
             # Apply immediately - modify config directly
             limits = self.config.get("time_limits", {})
             dedicated = limits.get("dedicated", {})
@@ -1593,7 +1540,7 @@ class AppBlockerGUI:
                 "limit": time_limit * 60,
             }
             apply_at = self._schedule_time_limit_update(update)
-            if self._is_development_mode():
+            if is_development_mode():
                 messagebox.showinfo(
                     "Application Added",
                     f"Application '{app_name}' added with limit {time_limit}min.\n"
@@ -1631,7 +1578,7 @@ class AppBlockerGUI:
                 "limit": time_limit * 60,
             }
             apply_at = self._schedule_time_limit_update(update)
-            if self._is_development_mode():
+            if is_development_mode():
                 messagebox.showinfo(
                     "Application Updated",
                     f"Application updated to '{new_app_name}' with limit {time_limit}min.\n"
@@ -1656,7 +1603,7 @@ class AppBlockerGUI:
         if messagebox.askyesno("Confirm", f"Remove {app_name} from monitoring?"):
             update = {"type": "remove_app", "app": app_name}
             apply_at = self._schedule_time_limit_update(update)
-            if self._is_development_mode():
+            if is_development_mode():
                 messagebox.showinfo(
                     "Application Removed",
                     f"Application '{app_name}' removed.\n"
@@ -1726,7 +1673,7 @@ class AppBlockerGUI:
             if overall_minutes != current_overall_minutes:
                 update = {"type": "set_overall", "limit": overall_minutes * 60}
                 apply_at = self._schedule_time_limit_update(update)
-                if self._is_development_mode():
+                if is_development_mode():
                     messagebox.showinfo(
                         "Settings Saved",
                         f"Overall time limit updated to {overall_minutes}min.\n"

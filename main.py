@@ -11,6 +11,7 @@ from notification_manager import (
     NotificationManager,
     parse_warning_thresholds,
 )
+from common import get_app_directory, is_development_mode, normalize_time_limits
 
 
 # === Blocked hours time range checking ===
@@ -146,16 +147,6 @@ def get_minutes_until_blocked_hours(now: datetime, blocked_hours: list) -> tuple
     return int(min_distance), nearest_start_str
 
 
-def get_app_directory():
-    """Get application directory - works with both development and PyInstaller"""
-    if getattr(sys, "frozen", False):
-        # Running as compiled executable
-        return Path(sys.executable).parent
-    else:
-        # Running as script
-        return Path(__file__).parent
-
-
 # Use application directory for config files
 APP_DIR = get_app_directory()
 
@@ -163,37 +154,6 @@ CONFIG_PATH = APP_DIR / "config.json"
 LOG_PATH = APP_DIR / "usage_log.json"
 HEARTBEAT_PATH = APP_DIR / "monitor_heartbeat.json"
 PENDING_UPDATES_PATH = APP_DIR / "pending_time_limit_updates.json"
-
-
-def _is_development_mode():
-    """Check if application is running in development mode.
-    
-    WHY: Development mode bypasses time limit update delays for faster iteration.
-    Reads from APP_BLOCKER_ENV environment variable.
-    """
-    return os.environ.get("APP_BLOCKER_ENV", "PRODUCTION").upper() == "DEVELOPMENT"
-
-
-def _normalize_time_limits(config):
-    """Ensure time_limits supports dedicated and overall limits (legacy apps supported)"""
-    raw_limits = config.get("time_limits")
-    legacy = config.get("apps") if "time_limits" not in config else None
-
-    source = raw_limits if isinstance(raw_limits, dict) else legacy if isinstance(legacy, dict) else {}
-
-    if "dedicated" in source or "overall" in source:
-        dedicated = source.get("dedicated", {}) or {}
-        overall = source.get("overall", 0) or 0
-        normalized = {"overall": overall, "dedicated": dedicated}
-    else:
-        # Backward compatibility: flat mapping of app limits
-        normalized = {"overall": 0, "dedicated": source}
-
-    config["time_limits"] = normalized
-    # Drop legacy key to avoid divergence
-    if "apps" in config:
-        config.pop("apps", None)
-    return config
 
 
 def _load_pending_updates():
@@ -221,7 +181,7 @@ def _apply_pending_updates(config):
     """Apply due pending time limit updates to config and persist both files"""
     # === Skip pending updates in development mode ===
     # In dev mode, changes are applied immediately, so no pending updates exist.
-    if _is_development_mode():
+    if is_development_mode():
         return config
     
     updates = _load_pending_updates()
@@ -314,13 +274,13 @@ def load_config():
     """Load configuration from file"""
     try:
         with open(CONFIG_PATH, "r") as f:
-            return _normalize_time_limits(json.load(f))
+            return normalize_time_limits(json.load(f))
     except FileNotFoundError:
         # Try to load default config
         default_config_path = APP_DIR / "config.default.json"
         try:
             with open(default_config_path, "r") as f:
-                config = _normalize_time_limits(json.load(f))
+                config = normalize_time_limits(json.load(f))
             print(f"Loaded default configuration from {default_config_path}")
             # Save as user config
             with open(CONFIG_PATH, "w") as f:

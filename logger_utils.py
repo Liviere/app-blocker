@@ -4,12 +4,7 @@ import sys
 import traceback
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-
-
-def _get_app_directory():
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
-    return Path(__file__).parent
+from common import get_app_directory
 
 
 class _EventLogHandler(logging.Handler):
@@ -124,7 +119,7 @@ def get_logger(
 
     logger.setLevel(logging.INFO)
 
-    app_dir = app_dir or _get_app_directory()
+    app_dir = app_dir or get_app_directory()
     app_dir.mkdir(exist_ok=True)
 
     log_file = app_dir / "app_blocker.log"
