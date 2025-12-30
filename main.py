@@ -11,140 +11,10 @@ from notification_manager import (
     NotificationManager,
     parse_warning_thresholds,
 )
-from common import get_app_directory, is_development_mode, normalize_time_limits
+from common import get_app_directory
+from config_manager import create_config_manager
+from time_utils import is_within_blocked_hours, get_minutes_until_blocked_hours 
 
-
-# === Blocked hours time range checking ===
-# Functions to determine if current time falls within any blocked time range.
-
-
-def parse_time_str(time_str: str) -> tuple[int, int]:
-    """
-    Parse 'HH:MM' string to (hours, minutes) tuple.
-    
-    WHY: We need numeric values for time comparison logic.
-    """
-    parts = time_str.strip().split(":")
-    return int(parts[0]), int(parts[1])
-
-
-def time_to_minutes(hours: int, minutes: int) -> int:
-    """
-    Convert hours and minutes to total minutes since midnight.
-    
-    WHY: Simplifies time comparison - single number instead of two.
-    """
-    return hours * 60 + minutes
-
-
-def is_time_in_range(current_minutes: int, start_minutes: int, end_minutes: int) -> bool:
-    """
-    Check if current time (in minutes) falls within a range.
-    
-    WHY: Handles both normal ranges (09:00-17:00) and overnight ranges (23:00-02:00).
-    Overnight ranges are detected when start > end.
-    """
-    if start_minutes <= end_minutes:
-        # Normal range: e.g., 09:00 to 17:00
-        return start_minutes <= current_minutes < end_minutes
-    else:
-        # Overnight range: e.g., 23:00 to 02:00
-        # Current time is in range if it's >= start OR < end
-        return current_minutes >= start_minutes or current_minutes < end_minutes
-
-
-def is_within_blocked_hours(now: datetime, blocked_hours: list) -> bool:
-    """
-    Check if current datetime falls within any blocked time range.
-    
-    WHY: Main entry point for blocked hours checking in the monitor loop.
-    Returns True if apps should be blocked right now.
-    """
-    if not blocked_hours:
-        return False
-    
-    current_minutes = time_to_minutes(now.hour, now.minute)
-    
-    for time_range in blocked_hours:
-        start_str = time_range.get("start", "")
-        end_str = time_range.get("end", "")
-        
-        if not start_str or not end_str:
-            continue
-        
-        try:
-            start_h, start_m = parse_time_str(start_str)
-            end_h, end_m = parse_time_str(end_str)
-            
-            start_minutes = time_to_minutes(start_h, start_m)
-            end_minutes = time_to_minutes(end_h, end_m)
-            
-            if is_time_in_range(current_minutes, start_minutes, end_minutes):
-                return True
-        except (ValueError, IndexError):
-            # Invalid time format - skip this range
-            continue
-    
-    return False
-
-
-# === Blocked hours approaching calculation ===
-# Calculate minutes until the next blocked hours period starts.
-
-
-def get_minutes_until_blocked_hours(now: datetime, blocked_hours: list) -> tuple[int, str]:
-    """
-    Calculate minutes until the nearest blocked hours period starts.
-    
-    WHY: Needed to trigger warning notifications before blocked hours begin.
-    Returns (minutes_until_block, start_time_str) or (-1, "") if no upcoming block.
-    Returns -1 if currently within blocked hours (already blocking).
-    """
-    if not blocked_hours:
-        return -1, ""
-    
-    current_minutes = time_to_minutes(now.hour, now.minute)
-    min_distance = float('inf')
-    nearest_start_str = ""
-    
-    for time_range in blocked_hours:
-        start_str = time_range.get("start", "")
-        end_str = time_range.get("end", "")
-        
-        if not start_str or not end_str:
-            continue
-        
-        try:
-            start_h, start_m = parse_time_str(start_str)
-            start_minutes = time_to_minutes(start_h, start_m)
-            
-            # Check if we're currently in this blocked period
-            end_h, end_m = parse_time_str(end_str)
-            end_minutes = time_to_minutes(end_h, end_m)
-            
-            if is_time_in_range(current_minutes, start_minutes, end_minutes):
-                # Already in blocked hours - no warning needed
-                return -1, ""
-            
-            # Calculate distance to start of this blocked period
-            if current_minutes < start_minutes:
-                # Same day: start is ahead
-                distance = start_minutes - current_minutes
-            else:
-                # Next day: wrap around midnight (1440 = minutes in day)
-                distance = (1440 - current_minutes) + start_minutes
-            
-            if distance < min_distance:
-                min_distance = distance
-                nearest_start_str = start_str
-                
-        except (ValueError, IndexError):
-            continue
-    
-    if min_distance == float('inf'):
-        return -1, ""
-    
-    return int(min_distance), nearest_start_str
 
 
 # Use application directory for config files
@@ -155,93 +25,16 @@ LOG_PATH = APP_DIR / "usage_log.json"
 HEARTBEAT_PATH = APP_DIR / "monitor_heartbeat.json"
 PENDING_UPDATES_PATH = APP_DIR / "pending_time_limit_updates.json"
 
-
-def _load_pending_updates():
-    try:
-        with open(PENDING_UPDATES_PATH, "r") as f:
-            data = json.load(f)
-            if isinstance(data, list):
-                return data
-    except FileNotFoundError:
-        return []
-    except Exception:
-        return []
-    return []
+# Initialize config manager
+config_manager = create_config_manager(APP_DIR)
 
 
-def _save_pending_updates(updates):
-    try:
-        with open(PENDING_UPDATES_PATH, "w") as f:
-            json.dump(updates, f, indent=2)
-    except Exception:
-        pass
+# === Utility functions ===
+# Functions that were removed during refactoring but are still needed
 
-
-def _apply_pending_updates(config):
-    """Apply due pending time limit updates to config and persist both files"""
-    # === Skip pending updates in development mode ===
-    # In dev mode, changes are applied immediately, so no pending updates exist.
-    if is_development_mode():
-        return config
-    
-    updates = _load_pending_updates()
-    if not updates:
-        return config
-
-    now = datetime.now(UTC)
-    due = []
-    future = []
-    for item in updates:
-        try:
-            apply_at = datetime.fromisoformat(item.get("apply_at"))
-        except Exception:
-            # Malformed entries: drop
-            continue
-        if apply_at <= now:
-            due.append(item)
-        else:
-            future.append(item)
-
-    limits = config.get("time_limits", {}) if isinstance(config, dict) else {}
-    dedicated = limits.get("dedicated", {}) if isinstance(limits, dict) else {}
-
-    for item in due:
-        itype = item.get("type")
-        if itype == "set_limit":
-            app = item.get("app")
-            limit = item.get("limit")
-            if app and limit is not None:
-                dedicated[app] = limit
-        elif itype == "set_overall":
-            limit = item.get("limit")
-            if limit is not None:
-                limits["overall"] = limit
-        elif itype == "remove_app":
-            app = item.get("app")
-            if app and app in dedicated:
-                dedicated.pop(app, None)
-        elif itype == "replace_app":
-            old_app = item.get("old_app")
-            new_app = item.get("new_app")
-            limit = item.get("limit")
-            if new_app and limit is not None:
-                if old_app:
-                    dedicated.pop(old_app, None)
-                dedicated[new_app] = limit
-
-    limits["dedicated"] = dedicated
-    config["time_limits"] = limits
-
-    _save_pending_updates(future)
-    try:
-        with open(CONFIG_PATH, "w") as f:
-            json.dump(config, f, indent=2)
-    except Exception:
-        pass
-
-    return config
 
 def _log_boot_proximity(logger, component, threshold):
+    """Log warning if component started soon after system boot"""
     if threshold <= 0:
         return
     try:
@@ -258,6 +51,7 @@ def _log_boot_proximity(logger, component, threshold):
 
 
 def _update_heartbeat(status="running", pid=None):
+    """Update monitor heartbeat file with current status"""
     try:
         heartbeat = {
             "status": status,
@@ -270,41 +64,18 @@ def _update_heartbeat(status="running", pid=None):
         pass
 
 
-def load_config():
-    """Load configuration from file"""
-    try:
-        with open(CONFIG_PATH, "r") as f:
-            return normalize_time_limits(json.load(f))
-    except FileNotFoundError:
-        # Try to load default config
-        default_config_path = APP_DIR / "config.default.json"
-        try:
-            with open(default_config_path, "r") as f:
-                config = normalize_time_limits(json.load(f))
-            print(f"Loaded default configuration from {default_config_path}")
-            # Save as user config
-            with open(CONFIG_PATH, "w") as f:
-                json.dump(config, f, indent=2)
-            return config
-        except FileNotFoundError:
-            print(
-                "Config file not found. Please run GUI first to configure applications."
-            )
-            return None
-
-
-def save_log(usage_log):
-    """Save usage log to file"""
-    with open(LOG_PATH, "w") as f:
-        json.dump(usage_log, f, indent=2)
-
-
 def load_usage_log():
     """Load usage log from file"""
     if LOG_PATH.exists():
         with open(LOG_PATH, "r") as f:
             return json.load(f)
     return {}
+
+
+def save_log(usage_log):
+    """Save usage log to file"""
+    with open(LOG_PATH, "w") as f:
+        json.dump(usage_log, f, indent=2)
 
 
 def kill_app(app_name, logger=None):
@@ -324,7 +95,7 @@ def kill_app(app_name, logger=None):
 
 def monitor():
     """Main monitoring function"""
-    config = _apply_pending_updates(load_config())
+    config = config_manager.apply_pending_updates(config_manager.load_config())
     if config is None:
         sys.exit(1)
 
@@ -371,7 +142,7 @@ def monitor():
             # This allows users to modify time limits, add/remove apps, or change
             # settings without restarting monitoring. The performance impact is
             # negligible (loading a small JSON file every 30+ seconds).
-            config = _apply_pending_updates(load_config())
+            config = config_manager.apply_pending_updates(config_manager.load_config())
             if config is None:
                 logger.error("Config file missing; stopping monitoring")
                 break
@@ -488,6 +259,10 @@ def monitor():
                     # Only notify if at least one monitored app is running
                     any_app_running = any(app in running for app in apps)
                     if any_app_running:
+                        notification_manager.notify_overall_limit(
+                            remaining_overall,
+                            warning_thresholds
+                        )
                         notification_manager.notify_overall_limit(
                             remaining_overall,
                             warning_thresholds

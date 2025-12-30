@@ -20,7 +20,11 @@ from security_manager import (
 )
 from state_manager import StateEvent, create_state_manager
 from notification_manager import validate_warning_thresholds
-from common import get_app_directory, is_development_mode, set_environment_mode, normalize_time_limits
+from common import get_app_directory, is_development_mode
+from config_manager import create_config_manager
+from time_utils import (
+    validate_time_format, time_str_to_minutes, validate_blocked_hours
+)
 
 
 # === Password setup dialog ===
@@ -532,88 +536,6 @@ class ProtectedModeDialog:
 # These classes handle UI for configuring blocked time ranges.
 
 
-def validate_time_format(time_str: str) -> bool:
-    """
-    Validate that string is in HH:MM format (24h).
-    
-    WHY: Ensures user input can be parsed correctly by the monitor.
-    """
-    if not time_str:
-        return False
-    parts = time_str.strip().split(":")
-    if len(parts) != 2:
-        return False
-    try:
-        hours = int(parts[0])
-        minutes = int(parts[1])
-        return 0 <= hours <= 23 and 0 <= minutes <= 59
-    except ValueError:
-        return False
-
-
-def time_str_to_minutes(time_str: str) -> int:
-    """
-    Convert 'HH:MM' to minutes since midnight.
-    
-    WHY: Simplifies overlap detection calculations.
-    """
-    parts = time_str.strip().split(":")
-    return int(parts[0]) * 60 + int(parts[1])
-
-
-def ranges_overlap(range1: dict, range2: dict) -> bool:
-    """
-    Check if two time ranges overlap.
-    
-    WHY: We need to prevent users from creating conflicting/overlapping blocked periods.
-    Handles both normal and overnight ranges.
-    """
-    start1 = time_str_to_minutes(range1["start"])
-    end1 = time_str_to_minutes(range1["end"])
-    start2 = time_str_to_minutes(range2["start"])
-    end2 = time_str_to_minutes(range2["end"])
-    
-    # Convert ranges to sets of minutes for overlap detection
-    def get_minutes_set(start: int, end: int) -> set:
-        if start <= end:
-            return set(range(start, end))
-        else:
-            # Overnight range: from start to midnight + from midnight to end
-            return set(range(start, 24 * 60)) | set(range(0, end))
-    
-    set1 = get_minutes_set(start1, end1)
-    set2 = get_minutes_set(start2, end2)
-    
-    return bool(set1 & set2)
-
-
-def validate_blocked_hours(ranges: list, exclude_index: int = -1) -> tuple[bool, str]:
-    """
-    Validate a list of blocked time ranges.
-    
-    WHY: Ensures configuration consistency - no overlaps, valid formats.
-    exclude_index: skip this index when checking overlaps (for editing existing range).
-    Returns (is_valid, error_message).
-    """
-    for i, r in enumerate(ranges):
-        if i == exclude_index:
-            continue
-        if not validate_time_format(r.get("start", "")):
-            return False, f"Invalid start time format in range {i + 1}"
-        if not validate_time_format(r.get("end", "")):
-            return False, f"Invalid end time format in range {i + 1}"
-    
-    # Check for overlaps between all pairs
-    for i in range(len(ranges)):
-        if i == exclude_index:
-            continue
-        for j in range(i + 1, len(ranges)):
-            if j == exclude_index:
-                continue
-            if ranges_overlap(ranges[i], ranges[j]):
-                return False, f"Ranges {i + 1} and {j + 1} overlap"
-    
-    return True, ""
 
 
 class TimeRangeDialog:
@@ -917,6 +839,9 @@ class AppBlockerGUI:
         self.app_dir = get_app_directory()
         # Ensure directory exists
         self.app_dir.mkdir(exist_ok=True)
+        
+        # Initialize config manager
+        self.config_manager = create_config_manager(self.app_dir)
         self.config_path = self.app_dir / "config.json"
         self.log_path = self.app_dir / "usage_log.json"
         self.app_log_path = self.app_dir / "app_blocker.log"
@@ -1089,32 +1014,17 @@ class AppBlockerGUI:
         # Config remains in plaintext for monitor compatibility.
         # Security manager verifies integrity to detect manual edits.
         
-        try:
-            with open(self.config_path, "r") as f:
-                self.config = json.load(f)
-        except FileNotFoundError:
-            # Try to load default config
-            default_config_path = self.app_dir / "config.default.json"
-            try:
-                with open(default_config_path, "r") as f:
-                    self.config = json.load(f)
-                print(f"Loaded default configuration from {default_config_path}")
-            except FileNotFoundError:
-                # Fallback to hardcoded default
-                self.config = {
-                    "time_limits": {"overall": 0, "dedicated": {}},
-                    "check_interval": 30,
-                    "enabled": False,
-                    "autostart": False,
-                    "minimize_to_tray": False,
-                }
-                print("Using hardcoded default configuration")
-
-            # Save the config to create user's config file
-            self.save_config()
-
-        self.config = normalize_time_limits(self.config)
-        self._ensure_config_defaults()
+        self.config = self.config_manager.load_config()
+        if self.config is None:
+            # Fallback to hardcoded default if config_manager fails
+            self.config = {
+                "time_limits": {"overall": 0, "dedicated": {}},
+                "check_interval": 30,
+                "enabled": False,
+                "autostart": False,
+                "minimize_to_tray": False,
+            }
+            print("Using fallback hardcoded default configuration")
         
         # Verify config integrity if security manager is set up
         if self.security_manager and self.security_manager.is_password_set():
@@ -1198,24 +1108,11 @@ class AppBlockerGUI:
         except Exception:
             return 0
 
-    def _load_pending_updates(self):
-        try:
-            with open(self.pending_updates_path, "r") as f:
-                data = json.load(f)
-                if isinstance(data, list):
-                    return data
-        except FileNotFoundError:
-            return []
-        except Exception:
-            return []
-        return []
+    # === CHECKPOINT: Removed duplicate _load_pending_updates method ===
+    # Now using config_manager.load_pending_updates() instead
 
-    def _save_pending_updates(self, updates):
-        try:
-            with open(self.pending_updates_path, "w") as f:
-                json.dump(updates, f, indent=2)
-        except Exception:
-            pass
+    # === CHECKPOINT: Removed duplicate _save_pending_updates method ===
+    # Now using config_manager.save_pending_updates() instead
 
     def _schedule_time_limit_update(self, update):
         """Queue a time limit update to apply after configured delay"""
@@ -1267,9 +1164,9 @@ class AppBlockerGUI:
         apply_at = datetime.now(UTC) + timedelta(hours=delay_hours)
         update["apply_at"] = apply_at.isoformat()
 
-        updates = self._load_pending_updates()
+        updates = self.config_manager.load_pending_updates()
         updates.append(update)
-        self._save_pending_updates(updates)
+        self.config_manager.save_pending_updates(updates)
         return apply_at
 
     def _create_time_limit_delay_field(self, settings_frame, start_row):
@@ -1291,8 +1188,7 @@ class AppBlockerGUI:
 
     def save_config(self):
         # === Config saving with integrity update ===
-        with open(self.config_path, "w") as f:
-            json.dump(self.config, f, indent=2)
+        self.config_manager.save_config(self.config)
         
         # Update config hash for integrity verification
         if self.security_manager:
