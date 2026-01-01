@@ -57,6 +57,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('config.default.json', '.'),
+        ('assets\\*', 'assets'),
     ],
     hiddenimports=['psutil'],
     hookspath=[],
@@ -100,6 +101,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('config.default.json', '.'),
+        ('assets\\*', 'assets'),
     ],
     hiddenimports=['psutil', 'tkinter'],
     hookspath=[],
@@ -188,6 +190,12 @@ def prepare_distribution():
     
     # Copy documentation
     shutil.copy2("README.md", dist_dir / "README.md")
+
+    # Copy assets (sounds, icons)
+    assets_src = Path("assets")
+    assets_dst = dist_dir / "assets"
+    if assets_src.exists():
+        shutil.copytree(assets_src, assets_dst, dirs_exist_ok=True)
     
     # Create batch files for easy execution
     gui_bat = """@echo off

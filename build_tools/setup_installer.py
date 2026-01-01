@@ -50,6 +50,7 @@ Source: "..\\dist\\app-blocker\\config.default.json"; DestDir: "{{app}}"; Flags:
 Source: "..\\dist\\app-blocker\\README.md"; DestDir: "{{app}}"; Flags: ignoreversion
 Source: "..\\dist\\app-blocker\\App Blocker GUI.bat"; DestDir: "{{app}}"; Flags: ignoreversion
 Source: "..\\dist\\app-blocker\\App Blocker Monitor.bat"; DestDir: "{{app}}"; Flags: ignoreversion
+Source: "..\\dist\\app-blocker\\assets\\*"; DestDir: "{{app}}\\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{{group}}\\App Blocker"; Filename: "{{app}}\\app-blocker-gui.exe"
