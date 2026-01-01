@@ -20,6 +20,7 @@ from app.security_manager import (
     _hash_password,
     SALT_LENGTH,
 )
+from app.config_manager import create_config_manager
 import secrets
 
 
@@ -286,6 +287,66 @@ class TestProtectedMode:
         
         # Should be inactive due to expiry
         assert security_manager.is_protected_mode_active() is False
+
+    def test_pending_updates_apply_immediately_when_not_protected(self, temp_app_dir):
+        """Pending updates should apply immediately if protected mode is inactive."""
+        config_path = temp_app_dir / "config.json"
+        pending_path = temp_app_dir / "pending_time_limit_updates.json"
+
+        base_config = {
+            "time_limits": {"overall": 0, "dedicated": {"test.exe": 3600}},
+            "check_interval": 1,
+            "enabled": True,
+        }
+        config_path.write_text(json.dumps(base_config, indent=2))
+
+        future_update = {
+            "type": "set_limit",
+            "app": "immediate.exe",
+            "limit": 900,
+            "apply_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+        }
+        pending_path.write_text(json.dumps([future_update], indent=2))
+
+        config_manager = create_config_manager(temp_app_dir)
+        config = config_manager.apply_pending_updates(config_manager.load_config())
+
+        assert config["time_limits"]["dedicated"]["immediate.exe"] == 900
+        if pending_path.exists():
+            remaining = json.loads(pending_path.read_text())
+            assert remaining == []
+
+    def test_pending_updates_defer_when_protected(self, temp_app_dir):
+        """Pending updates should stay queued while protected mode is active."""
+        config_path = temp_app_dir / "config.json"
+        pending_path = temp_app_dir / "pending_time_limit_updates.json"
+
+        base_config = {
+            "time_limits": {"overall": 0, "dedicated": {"test.exe": 3600}},
+            "check_interval": 1,
+            "enabled": True,
+        }
+        config_path.write_text(json.dumps(base_config, indent=2))
+
+        future_update = {
+            "type": "set_limit",
+            "app": "delayed.exe",
+            "limit": 900,
+            "apply_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+        }
+        pending_path.write_text(json.dumps([future_update], indent=2))
+
+        security_manager = SecurityManager(temp_app_dir)
+        assert security_manager.setup_password("password123")
+        assert security_manager.activate_protected_mode(1)
+
+        config_manager = create_config_manager(temp_app_dir)
+        config = config_manager.apply_pending_updates(config_manager.load_config())
+
+        assert "delayed.exe" not in config["time_limits"]["dedicated"]
+        if pending_path.exists():
+            remaining = json.loads(pending_path.read_text())
+            assert any(p.get("app") == "delayed.exe" for p in remaining)
 
 
 # === Password change tests ===

@@ -22,7 +22,7 @@ from app.security_manager import (
 )
 from app.state_manager import StateEvent, create_state_manager
 from app.notification_manager import validate_warning_thresholds
-from app.common import get_app_directory, is_development_mode
+from app.common import get_app_directory
 from app.config_manager import create_config_manager
 
 # Import dialog classes from separate module
@@ -362,10 +362,10 @@ class AppBlockerGUI:
 
     def _schedule_time_limit_update(self, update: dict) -> datetime:
         """
-        Schedule or apply a time limit update depending on environment.
+        Schedule or apply a time limit update depending on protected mode.
 
-        WHY: In production we defer updates with a grace period, while
-        development mode applies them immediately for fast iteration.
+        WHY: Delays are a safeguard only in protected mode; outside it
+        updates take effect immediately to keep UX responsive.
         """
         now = datetime.now(UTC)
         delay_hours = self.config.get("time_limit_update_delay_hours", 2)
@@ -375,7 +375,7 @@ class AppBlockerGUI:
             delay_hours = 2
         delay_hours = max(2, delay_hours)
 
-        if is_development_mode():
+        if not self._is_protected_mode_active():
             self._apply_time_limit_update_now(update)
             self.save_config()
             return now
@@ -489,7 +489,8 @@ class AppBlockerGUI:
         overall_entry.grid(row=next_row, column=1, padx=(10, 0), pady=(5, 0))
         next_row += 1
 
-        next_row = self._create_time_limit_delay_field(settings_frame, next_row)
+        if not self.security_manager:
+            next_row = self._create_time_limit_delay_field(settings_frame, next_row)
 
         # === Notification settings UI ===
         # UI controls for configuring warning notifications before app closure.
@@ -570,16 +571,21 @@ class AppBlockerGUI:
                 text="",
                 font=("Arial", 10)
             )
-            self.protected_status_label.grid(row=0, column=0, padx=(0, 10))
+            self.protected_status_label.grid(
+                row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 5)
+            )
             
             self.protected_btn = ttk.Button(
                 protected_frame,
                 text="Configure Protected Mode",
                 command=self.open_protected_mode_dialog
             )
-            self.protected_btn.grid(row=0, column=1)
+            self.protected_btn.grid(row=1, column=0, columnspan=2, sticky=tk.W)
             
             self._update_protected_mode_status()
+            # === CHECKPOINT: Protected Mode Delay Placement ===
+            # Keep the delay control adjacent to protected mode actions so it is clearly tied to that safeguard.
+            self._create_time_limit_delay_field(protected_frame, 2)
 
         # Configure grid weights
         self.root.columnconfigure(0, weight=1)
@@ -633,11 +639,11 @@ class AppBlockerGUI:
                 "limit": time_limit * 60,
             }
             apply_at = self._schedule_time_limit_update(update)
-            if is_development_mode():
+            if not self._is_protected_mode_active():
                 messagebox.showinfo(
                     "Application Added",
                     f"Application '{app_name}' added with limit {time_limit}min.\n"
-                    f"Change applied immediately (development mode).",
+                    f"Change applied immediately.",
                 )
             else:
                 messagebox.showinfo(
@@ -671,11 +677,11 @@ class AppBlockerGUI:
                 "limit": time_limit * 60,
             }
             apply_at = self._schedule_time_limit_update(update)
-            if is_development_mode():
+            if not self._is_protected_mode_active():
                 messagebox.showinfo(
                     "Application Updated",
                     f"Application updated to '{new_app_name}' with limit {time_limit}min.\n"
-                    f"Change applied immediately (development mode).",
+                    f"Change applied immediately.",
                 )
             else:
                 messagebox.showinfo(
@@ -696,11 +702,11 @@ class AppBlockerGUI:
         if messagebox.askyesno("Confirm", f"Remove {app_name} from monitoring?"):
             update = {"type": "remove_app", "app": app_name}
             apply_at = self._schedule_time_limit_update(update)
-            if is_development_mode():
+            if not self._is_protected_mode_active():
                 messagebox.showinfo(
                     "Application Removed",
                     f"Application '{app_name}' removed.\n"
-                    f"Change applied immediately (development mode).",
+                    f"Change applied immediately.",
                 )
             else:
                 messagebox.showinfo(
@@ -766,11 +772,11 @@ class AppBlockerGUI:
             if overall_minutes != current_overall_minutes:
                 update = {"type": "set_overall", "limit": overall_minutes * 60}
                 apply_at = self._schedule_time_limit_update(update)
-                if is_development_mode():
+                if not self._is_protected_mode_active():
                     messagebox.showinfo(
                         "Settings Saved",
                         f"Overall time limit updated to {overall_minutes}min.\n"
-                        f"Change applied immediately (development mode).",
+                        f"Change applied immediately.",
                     )
                 else:
                     messagebox.showinfo(

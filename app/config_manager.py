@@ -8,7 +8,8 @@ import json
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Dict, Any, List
-from .common import get_app_directory, is_development_mode, normalize_time_limits
+from .common import get_app_directory, normalize_time_limits
+from .security_manager import SecurityManager
 
 
 class ConfigManager:
@@ -120,41 +121,50 @@ class ConfigManager:
         except Exception:
             pass
     
+    # === CHECKPOINT: Pending Updates Application ===
     def apply_pending_updates(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Apply due pending time limit updates to config and persist both files.
-        
-        WHY: Handles development mode bypass and automatic application of scheduled changes.
-        
+        Apply pending time limit updates based on protected mode status.
+
+        WHY: Delayed updates are only honored while protected mode is active;
+        otherwise all queued updates apply immediately.
+
         Args:
             config: Current configuration dictionary
             
         Returns:
             Dict: Updated configuration with applied changes
         """
-        # === Skip pending updates in development mode ===
-        # In dev mode, changes are applied immediately, so no pending updates exist.
-        if is_development_mode():
-            return config
-        
         updates = self.load_pending_updates()
         if not updates:
             return config
 
+        # Determine whether protected mode is active; if not, apply everything now
+        protected_active = False
+        try:
+            protected_active = SecurityManager(self.app_dir).is_protected_mode_active()
+        except Exception:
+            protected_active = False
+
         now = datetime.now(UTC)
-        due = []
-        future = []
-        
-        for item in updates:
-            try:
-                apply_at = datetime.fromisoformat(item.get("apply_at"))
-            except Exception:
-                # Malformed entries: drop
-                continue
-            if apply_at <= now:
-                due.append(item)
-            else:
-                future.append(item)
+        if protected_active:
+            due: List[Dict[str, Any]] = []
+            future: List[Dict[str, Any]] = []
+
+            for item in updates:
+                try:
+                    apply_at = datetime.fromisoformat(item.get("apply_at"))
+                except Exception:
+                    # Malformed entries: drop
+                    continue
+                if apply_at <= now:
+                    due.append(item)
+                else:
+                    future.append(item)
+        else:
+            # No delay outside protected mode – everything applies immediately
+            due = updates
+            future = []
 
         limits = config.get("time_limits", {}) if isinstance(config, dict) else {}
         dedicated = limits.get("dedicated", {}) if isinstance(limits, dict) else {}

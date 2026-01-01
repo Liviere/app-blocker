@@ -43,6 +43,8 @@ def play_sound_async(sound_path: Path) -> None:
     Spawns daemon thread so it won't prevent process exit.
     """
     if not sound_path.exists():
+        logger = get_logger("app_blocker.monitor", get_app_directory(), True)
+        logger.warning(f"Sound file not found: {sound_path}")
         return
     
     thread = threading.Thread(target=_play_sound_blocking, args=(sound_path,), daemon=True)
